@@ -91,6 +91,17 @@ alias dshfix='dsh-dev plugin --profile web add /home/wwt/Downloads/aigc/proj/dee
 
 卸载:`dsh-dev plugin --profile web rm dsh-qwen38-llamacpp-compaction-fix`
 
+### 从本仓库安装(新机器/新目录)
+
+```sh
+git clone https://github.com/IamWWT/dsh-qwen38-llamacpp-compaction-fix.git
+dsh-dev plugin --profile web add <克隆路径>/dsh-qwen38-llamacpp-compaction-fix
+# 重启 dsh web(或刷新 GUI 页面)
+```
+
+安装后按[使用与配置](#使用与配置)一节,把 `models` 和 `chunking.contextWindows`
+改成你网关实际上报的模型 id 与上下文窗口。
+
 **验证是否装上:**
 
 - 触发一次压缩(或等自动压缩)后,dsh 日志里应出现:
