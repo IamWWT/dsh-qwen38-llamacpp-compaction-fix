@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.4.0 (2026-09-05)
+
+### Changed (settings UI, browser half only)
+
+- **Enum dropdown for `wireReasoning`**: the reasoning_effort value is now a
+  `<select>` (none / low / medium / high / “不写该字段”) instead of free text —
+  no more typos in an enumerated field.
+- **Hover tooltips with explicit dependency labels**: every field label carries a
+  `title` tooltip stating whether the field is independent (“独立项”) or which
+  switch gates it (e.g. “依赖「超大对话分片救援」开启”). The only two
+  dependency chains are: `models` (root — empty disables the whole policy) and
+  the rescue master switch (gates context windows + the four chunk tuning
+  fields).
+- **Rescue-gated dimming**: when the rescue switch is off, the per-model
+  context-window rows and the four chunking advanced fields are greyed out and
+  disabled (values kept, just inert), with an orange “depends on rescue being
+  on” note — the UI now shows the dependency structure instead of hiding it.
+- README: FAQ (when `/qwen38-compact` can be triggered; whether anything runs
+  automatically), UI dependency documentation, and a research-notes section.
+
+### Added
+
+- `docs/codex-token-budget-hard-rollover.md`: verified research on Codex's
+  token-budget + hard context rollover direction (rust-v0.153.0 release notes,
+  PR #29743, PR #39827 — all checked online) and the design sketch for a
+  candidate third feature, `/qwen38-new-context` (instant zero-LLM hard reset,
+  plus a handoff-note variant). Research only; not implemented.
+
 ## 0.3.0 (2026-09-05)
 
 ### Added

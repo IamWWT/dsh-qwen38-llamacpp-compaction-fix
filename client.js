@@ -71,6 +71,21 @@ window.__ModuleLoader__.load({
 				saveFailed: '部署未接受这些值,改动仍保留在表单中,请修正后重试。',
 				readOnly: '当前部署的设置存储为只读。',
 				unavailable: '设置服务暂不可用。',
+				wireOmit: '不写该字段',
+				rescueOffNote: '依赖「超大对话分片救援」开启——当前已停用,以上项不生效(配置保留)。',
+				// Hover tooltips (label title attribute): each states the field's
+				// dependencies explicitly — “独立项” or which switch gates it.
+				tipModels: '根开关(其余全部依赖它):留空则整个插件策略停用——本页其他参数全部不生效。逗号分隔,须与 settings.yaml 中 llm-pi-ai providers 声明的模型 id 完全一致。',
+				tipEnableThinkingOff: '独立项(不依赖其他项)。开启:向匹配的压缩/标题请求写入 chat_template_kwargs.enable_thinking=false(Qwen3 在 llama.cpp 上的主开关)。与「reasoning_effort 字段值」是双保险关系,二者可各自独立开关。正常对话不受影响。',
+				tipWireReasoning: '独立项(不依赖其他项)。下拉选择写入请求体 reasoning_effort 的值(llama.cpp 接受 none/low/medium/high);选「不写该字段」则省略。与「压缩/标题调用关闭思考」互为双保险。',
+				tipMaxTokensFloor: '独立项(不依赖其他项)。辅助调用的 max_tokens 至少抬到该值(只升不降),防止客户端上下文钳制吃掉输出预算;0 停用。',
+				tipChunkingEnabled: '「分片救援」组的总开关(5 项依赖它):上下文窗口 + chunkRatio/chunkMaxTokens/mergeMaxTokens/maxChunks。停用后这些项变灰且不生效(配置仍保留,只是不使用)。',
+				tipWindows: '依赖①「超大对话分片救援」开启;②模型 id 出现在「适用模型 ID」列表里。填该模型 llama-server 实际运行的 -c(Unsloth 改过 -c 或换 GGUF 后用 curl /v1/models 查 context_length 同步过来)。只影响“何时分片”:设小=更早分片(慢一点),设大=可能单次溢出(安全回退)。',
+				tipSampling: '独立项(不依赖其他项)。原样写入压缩/标题调用的请求体;正常对话不受影响。',
+				tipChunkRatio: '依赖「超大对话分片救援」开启。单次内部调用输入预算 = 上下文窗口 × 该比例(其余留给指令、估算误差与输出上限),取值 (0,1]。',
+				tipChunkMaxTokens: '依赖「超大对话分片救援」开启。单个分片摘要的输出上限(token)。',
+				tipMergeMaxTokens: '依赖「超大对话分片救援」开启。最终合并 checkpoint 的输出上限(token)。',
+				tipMaxChunks: '依赖「超大对话分片救援」开启。单次救援的分片数安全上限;超出的区间 fail-open(转发原请求并告警)。',
 			},
 			en: {
 				title: 'Qwen3.8 llama.cpp compaction fix',
@@ -113,6 +128,19 @@ window.__ModuleLoader__.load({
 				saveFailed: 'The deployment did not accept these values; they were left for you to correct.',
 				readOnly: 'This deployment stores settings read-only.',
 				unavailable: 'The settings service is unavailable.',
+				wireOmit: 'omit field',
+				rescueOffNote: 'Depends on “oversized-compaction chunked rescue” being on — it is currently off, so the items above are inert (values kept).',
+				tipModels: 'Root switch (everything else depends on it): empty disables the whole plugin policy — no other parameter on this page takes effect. Comma-separated; must exactly match the model ids declared under llm-pi-ai providers in settings.yaml.',
+				tipEnableThinkingOff: 'Independent item (no dependencies). On: writes chat_template_kwargs.enable_thinking=false into matched compaction/title requests (the primary Qwen3 switch on llama.cpp). Pairs as belt-and-braces with “reasoning_effort field value” — either can be toggled independently. Normal conversation is unaffected.',
+				tipWireReasoning: 'Independent item (no dependencies). Dropdown for the reasoning_effort value written into the request body (llama.cpp accepts none/low/medium/high); “omit field” leaves it out. Pairs as belt-and-braces with “disable thinking on compaction/title calls”.',
+				tipMaxTokensFloor: 'Independent item (no dependencies). Raises auxiliary-call max_tokens to at least this value (never lowers) so the client-side context clamp cannot eat the output budget. 0 disables.',
+				tipChunkingEnabled: 'Master switch of the chunked-rescue group (5 items depend on it): context windows + chunkRatio/chunkMaxTokens/mergeMaxTokens/maxChunks. When off, those items are greyed out and inert (values kept).',
+				tipWindows: 'Depends on ① “oversized-compaction chunked rescue” being on; ② the model id appearing in the model-ids list. The llama-server -c actually running for that model (after changing -c or the GGUF in Unsloth Studio, sync from context_length via curl /v1/models). Only affects WHEN chunking kicks in: smaller = earlier chunking (slower), larger = possible single-call overflow (safe fallback).',
+				tipSampling: 'Independent item (no dependencies). Written verbatim into compaction/title request bodies; normal conversation is unaffected.',
+				tipChunkRatio: 'Depends on “oversized-compaction chunked rescue” being on. Single-call input budget = context window × this ratio (the rest covers instructions, estimation error and the output cap); range (0,1].',
+				tipChunkMaxTokens: 'Depends on “oversized-compaction chunked rescue” being on. Per-slice summary output cap (tokens).',
+				tipMergeMaxTokens: 'Depends on “oversized-compaction chunked rescue” being on. Final merged-checkpoint output cap (tokens).',
+				tipMaxChunks: 'Depends on “oversized-compaction chunked rescue” being on. Safety cap on slices per rescue; ranges beyond it fail open (forward the original request with a warning).',
 			},
 		};
 
@@ -152,7 +180,7 @@ window.__ModuleLoader__.load({
 
 		const FIELDS = [
 			{
-				id: 'models', path: () => ['models'], labelKey: 'modelsLabel', hintKey: 'modelsHint',
+				id: 'models', path: () => ['models'], labelKey: 'modelsLabel', hintKey: 'modelsHint', tipKey: 'tipModels',
 				format: (v) => Array.isArray(v) ? v.join(', ') : (typeof v === 'string' ? v : ''),
 				parse: (text) => {
 					const items = text.split(/[,，\s]+/).map((s) => s.trim()).filter(Boolean);
@@ -160,10 +188,11 @@ window.__ModuleLoader__.load({
 				},
 			},
 			{
-				id: 'enableThinkingOff', path: () => ['enableThinkingOff'], labelKey: 'enableThinkingOffLabel', hintKey: 'enableThinkingOffHint', bool: true,
+				id: 'enableThinkingOff', path: () => ['enableThinkingOff'], labelKey: 'enableThinkingOffLabel', hintKey: 'enableThinkingOffHint', tipKey: 'tipEnableThinkingOff', bool: true,
 			},
 			{
-				id: 'wireReasoning', path: () => ['wireReasoning'], labelKey: 'wireReasoningLabel', hintKey: 'wireReasoningHint',
+				id: 'wireReasoning', path: () => ['wireReasoning'], labelKey: 'wireReasoningLabel', hintKey: 'wireReasoningHint', tipKey: 'tipWireReasoning',
+				enum: ['', 'none', 'low', 'medium', 'high'],
 				format: (v) => typeof v === 'string' ? v : '',
 				parse: (text) => {
 					const trimmed = text.trim();
@@ -171,25 +200,25 @@ window.__ModuleLoader__.load({
 				},
 			},
 			{
-				id: 'maxTokensFloor', path: () => ['maxTokensFloor'], labelKey: 'maxTokensFloorLabel', hintKey: 'maxTokensFloorHint', numeric: true,
+				id: 'maxTokensFloor', path: () => ['maxTokensFloor'], labelKey: 'maxTokensFloorLabel', hintKey: 'maxTokensFloorHint', tipKey: 'tipMaxTokensFloor', numeric: true,
 				format: (v) => typeof v === 'number' ? String(v) : '', parse: numberParse,
 			},
 			{
-				id: 'chunkingEnabled', path: () => ['chunking', 'enabled'], labelKey: 'rescueLabel', hintKey: 'rescueHint', bool: true,
+				id: 'chunkingEnabled', path: () => ['chunking', 'enabled'], labelKey: 'rescueLabel', hintKey: 'rescueHint', tipKey: 'tipChunkingEnabled', bool: true,
 			},
 		];
 
 		const ADVANCED_FIELDS = [
-			{ id: 'temperature', path: () => ['sampling', 'temperature'], labelKey: 'temperatureLabel', numeric: true },
-			{ id: 'topP', path: () => ['sampling', 'top_p'], labelKey: 'topPLabel', numeric: true },
-			{ id: 'topK', path: () => ['sampling', 'top_k'], labelKey: 'topKLabel', numeric: true },
-			{ id: 'minP', path: () => ['sampling', 'min_p'], labelKey: 'minPLabel', numeric: true },
-			{ id: 'presencePenalty', path: () => ['sampling', 'presence_penalty'], labelKey: 'presencePenaltyLabel', numeric: true },
-			{ id: 'repetitionPenalty', path: () => ['sampling', 'repetition_penalty'], labelKey: 'repetitionPenaltyLabel', numeric: true },
-			{ id: 'chunkRatio', path: () => ['chunking', 'chunkRatio'], labelKey: 'chunkRatioLabel', numeric: true },
-			{ id: 'chunkMaxTokens', path: () => ['chunking', 'chunkMaxTokens'], labelKey: 'chunkMaxTokensLabel', numeric: true },
-			{ id: 'mergeMaxTokens', path: () => ['chunking', 'mergeMaxTokens'], labelKey: 'mergeMaxTokensLabel', numeric: true },
-			{ id: 'maxChunks', path: () => ['chunking', 'maxChunks'], labelKey: 'maxChunksLabel', numeric: true },
+			{ id: 'temperature', path: () => ['sampling', 'temperature'], labelKey: 'temperatureLabel', tipKey: 'tipSampling', numeric: true },
+			{ id: 'topP', path: () => ['sampling', 'top_p'], labelKey: 'topPLabel', tipKey: 'tipSampling', numeric: true },
+			{ id: 'topK', path: () => ['sampling', 'top_k'], labelKey: 'topKLabel', tipKey: 'tipSampling', numeric: true },
+			{ id: 'minP', path: () => ['sampling', 'min_p'], labelKey: 'minPLabel', tipKey: 'tipSampling', numeric: true },
+			{ id: 'presencePenalty', path: () => ['sampling', 'presence_penalty'], labelKey: 'presencePenaltyLabel', tipKey: 'tipSampling', numeric: true },
+			{ id: 'repetitionPenalty', path: () => ['sampling', 'repetition_penalty'], labelKey: 'repetitionPenaltyLabel', tipKey: 'tipSampling', numeric: true },
+			{ id: 'chunkRatio', path: () => ['chunking', 'chunkRatio'], labelKey: 'chunkRatioLabel', tipKey: 'tipChunkRatio', numeric: true, rescueDependent: true },
+			{ id: 'chunkMaxTokens', path: () => ['chunking', 'chunkMaxTokens'], labelKey: 'chunkMaxTokensLabel', tipKey: 'tipChunkMaxTokens', numeric: true, rescueDependent: true },
+			{ id: 'mergeMaxTokens', path: () => ['chunking', 'mergeMaxTokens'], labelKey: 'mergeMaxTokensLabel', tipKey: 'tipMergeMaxTokens', numeric: true, rescueDependent: true },
+			{ id: 'maxChunks', path: () => ['chunking', 'maxChunks'], labelKey: 'maxChunksLabel', tipKey: 'tipMaxChunks', numeric: true, rescueDependent: true },
 		].map((f) => ({ ...f, format: (v) => typeof v === 'number' ? String(v) : '', parse: numberParse }));
 
 		const ALL_FIELDS = FIELDS.concat(ADVANCED_FIELDS);
@@ -262,16 +291,22 @@ window.__ModuleLoader__.load({
 					}
 					windows[model] = { text, overridden, invalid };
 				}
-				return {
-					status: snap ? snap.status : 'loading',
-					writable: Boolean(snap && snap.writable),
-					models: stagedModels,
-					fields,
-					windows,
-					dirty: this.staged.size > 0 || this.stagedWindows.size > 0,
-					saving: this.saving,
-					failed: this.failed,
-				};
+			// Rescue master switch (staged value wins): gates the chunking group.
+			const ce = this.staged.get('chunkingEnabled');
+			const rescueOn = ce === undefined
+				? Boolean(getAt(value, ['chunking', 'enabled']))
+				: ce.text === 'true';
+			return {
+				status: snap ? snap.status : 'loading',
+				writable: Boolean(snap && snap.writable),
+				models: stagedModels,
+				fields,
+				windows,
+				rescueOn,
+				dirty: this.staged.size > 0 || this.stagedWindows.size > 0,
+				saving: this.saving,
+				failed: this.failed,
+			};
 			}
 
 			publish() {
@@ -428,13 +463,27 @@ window.__ModuleLoader__.load({
 			return h('button', { type: 'button', style: badgeStyle, title: props.t('reset'), onClick: props.onClick }, props.t('overridden'));
 		}
 
+		/** Label with a hover tooltip (title attribute) stating the field's
+		 *  dependencies — “独立项” or which switch gates it. */
+		function TipLabel(props) {
+			return h('label', {
+				style: Object.assign({}, labelStyle, { cursor: 'help' }),
+				htmlFor: props.id,
+				title: props.field.tipKey ? props.t(props.field.tipKey) : undefined,
+			}, props.t(props.field.labelKey));
+		}
+
 		function FieldRow(props) {
 			const t = props.t;
 			const state = props.state || {};
-			const disabled = Boolean(props.disabled);
+			// A rescue-dependent row is inert (but keeps its value) while the
+			// rescue master switch is off.
+			const dimmed = Boolean(props.dimmed);
+			const disabled = Boolean(props.disabled) || dimmed;
+			const rowEl = Object.assign({}, rowStyle, dimmed ? { opacity: 0.45 } : {});
 			if (props.field.bool) {
-				return h('div', { style: rowStyle },
-					h('label', { style: labelStyle, htmlFor: props.id }, t(props.field.labelKey)),
+				return h('div', { style: rowEl },
+					h(TipLabel, { id: props.id, t, field: props.field }),
 					h('div', { style: controlStyle },
 						h(Switch, {
 							checked: state.text === 'true', disabled,
@@ -445,15 +494,21 @@ window.__ModuleLoader__.load({
 					),
 				);
 			}
-			return h('div', { style: rowStyle },
-				h('label', { style: labelStyle, htmlFor: props.id }, t(props.field.labelKey)),
+			const control = props.field.enum ? h('select', {
+				id: props.id, value: state.text || '', disabled,
+				style: { width: '200px', maxWidth: '100%', padding: '4px 6px' },
+				onChange: (e) => props.onEdit(e.target.value),
+			}, props.field.enum.map((v) => h('option', { key: v || '__empty', value: v }, v === '' ? t('wireOmit') : v)))
+				: h(Input, {
+					id: props.id, value: state.text || '', disabled, 'aria-invalid': state.invalid || undefined,
+					style: Object.assign({ width: '260px', maxWidth: '100%' }, state.invalid ? { borderColor: '#c0392b' } : {}),
+					onChange: (e) => props.onEdit(e.target.value),
+				});
+			return h('div', { style: rowEl },
+				h(TipLabel, { id: props.id, t, field: props.field }),
 				h('div', { style: controlStyle },
 					h('div', { style: inputRowStyle },
-						h(Input, {
-							id: props.id, value: state.text || '', disabled, 'aria-invalid': state.invalid || undefined,
-							style: Object.assign({ width: '260px', maxWidth: '100%' }, state.invalid ? { borderColor: '#c0392b' } : {}),
-							onChange: (e) => props.onEdit(e.target.value),
-						}),
+						control,
 						h(OverrideBadge, { overridden: state.overridden, t, onClick: () => props.onReset() }),
 					),
 					props.field.hintKey ? h('span', { style: hintStyle }, t(props.field.hintKey)) : null,
@@ -464,9 +519,13 @@ window.__ModuleLoader__.load({
 		function WindowRow(props) {
 			const t = props.t;
 			const state = props.state || {};
-			const disabled = Boolean(props.disabled);
-			return h('div', { style: rowStyle },
-				h('label', { style: labelStyle, htmlFor: props.id }, props.model),
+			const dimmed = Boolean(props.dimmed);
+			const disabled = Boolean(props.disabled) || dimmed;
+			return h('div', { style: Object.assign({}, rowStyle, dimmed ? { opacity: 0.45 } : {}) },
+				h('label', {
+					style: Object.assign({}, labelStyle, { cursor: 'help' }),
+					htmlFor: props.id, title: t('tipWindows'),
+				}, props.model),
 				h('div', { style: controlStyle },
 					h('div', { style: inputRowStyle },
 						h(Input, {
@@ -497,22 +556,25 @@ window.__ModuleLoader__.load({
 					onReset: () => props.resetField(f.id),
 				})),
 				h('div', { style: rowStyle },
-					h('label', { style: labelStyle }, t('windowsTitle')),
+					h('label', {
+						style: Object.assign({}, labelStyle, { cursor: 'help' }), title: t('tipWindows'),
+					}, t('windowsTitle')),
 					h('div', { style: controlStyle },
 						s.models.length === 0 ? h('span', { style: hintStyle }, '—') : s.models.map((model) => h(WindowRow, {
 							key: model, id: props.idPrefix + '-win-' + model.replace(/[^a-zA-Z0-9_-]/g, '_'), t,
-							model, state: s.windows[model], disabled,
+							model, state: s.windows[model], disabled, dimmed: !s.rescueOn,
 							onEdit: (text) => props.editWindow(model, text),
 							onReset: () => props.resetWindow(model),
 						})),
 						h('span', { style: hintStyle }, t('windowsHint')),
+						!s.rescueOn ? h('span', { style: Object.assign({}, hintStyle, { color: '#b45309' }) }, '⚠️ ' + t('rescueOffNote')) : null,
 					),
 				),
 				h('details', null,
 					h('summary', { style: Object.assign({ display: 'block' }, sectionTitleStyle, { cursor: 'pointer' }) }, t('advancedTitle')),
 					ADVANCED_FIELDS.map((f) => h(FieldRow, {
 						key: f.id, id: props.idPrefix + '-' + f.id, t, field: f, state: s.fields[f.id],
-						disabled,
+						disabled, dimmed: Boolean(f.rescueDependent) && !s.rescueOn,
 						onEdit: (text) => props.edit(f.id, text),
 						onReset: () => props.resetField(f.id),
 					})),

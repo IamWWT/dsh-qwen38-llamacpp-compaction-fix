@@ -203,6 +203,25 @@ let sectionHtml = render(sectionEntry.component(props))
 assert.match(sectionHtml, /Qwen3\.8 llama\.cpp 压缩修复/, 'section title renders')
 assert.match(sectionHtml, /作用域/, 'section carries the scope banner')
 assert.match(sectionHtml, /\/qwen38-compact/, 'section shows the manual command hint')
+
+// ---------------------------------------------------------------------------
+// v0.4 UI: enum dropdown, hover tooltips, rescue-gated dimming.
+// ---------------------------------------------------------------------------
+assert.match(html, /<select[^>]*id="plugin-config-qwen38-wireReasoning"/, 'wireReasoning renders as a select')
+assert.match(html, /<option [^>]*value="none">none<\/option>/, 'select offers none')
+assert.match(html, /<option [^>]*value="high">high<\/option>/, 'select offers high')
+assert.match(html, /不写该字段/, 'select offers the omit option')
+assert.match(html, /title="根开关/, 'models label carries a dependency tooltip (root switch)')
+assert.match(html, /title="独立项/, 'independent fields state they are independent in the tooltip')
+assert.match(html, /title="「分片救援」组的总开关/, 'rescue switch tooltip names its dependent group')
+assert.equal(face.hooks.qwen38Card.getSnapshot().rescueOn, true, 'rescue on by default → chunking group live')
+
+// Turn the rescue switch off: snapshot flips and the chunking rows dim.
+face.edit('chunkingEnabled', 'false')
+assert.equal(face.hooks.qwen38Card.getSnapshot().rescueOn, false, 'staged rescue-off flips the gate')
+html = render(entry.component(props))
+assert.match(html, /依赖「超大对话分片救援」开启——当前已停用/, 'rescue-off note appears in the chunking group')
+face.discard()
 assert.match(sectionHtml, /20000/, 'section reads the same live scope (user override)')
 
 // ---------------------------------------------------------------------------
