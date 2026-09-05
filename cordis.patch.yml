@@ -1,0 +1,62 @@
+# dsh-qwen38-llamacpp-compaction-fix — bundle patch.
+#
+# Registers the plugin on the host's `llm/stream` waterfall and installs its
+# process-local fetch wrapper. The config block below is the BASE layer:
+# a `qwen38-llamacpp-compaction-fix:` section in $DSH_HOME/settings.yaml
+# overrides it without a restart (see README.md).
+- insert:
+    - id: qwen38-llamacpp-compaction-fix
+      name: dsh-qwen38-llamacpp-compaction-fix
+      config:
+        # Stamp this reasoning effort onto matched calls. "" disables the
+        # effort policy (the wire-level layers still apply while configured).
+        effort: off
+        # Exact model ids the policy applies to (case-sensitive, as declared
+        # under llm-pi-ai.providers.<provider>.models[].id in settings.yaml).
+        # A call/body whose model is not in this list passes through
+        # untouched. Empty list disables the whole policy.
+        models: [Qwen3.8-27B-GGUF]
+        # Sampling settings written verbatim into the compaction request body
+        # (wire field names; all accepted by llama.cpp). These are Qwen3's
+        # recommended parameters for non-thinking mode. {} leaves sampling
+        # untouched.
+        sampling:
+          temperature: 0.7
+          top_p: 0.8
+          top_k: 20
+          min_p: 0.0
+          presence_penalty: 1.5
+          repetition_penalty: 1.0
+        # Raise the wire max_tokens of compaction bodies to at least this
+        # value (never lowers it) so the summarizer keeps its output budget
+        # when pi-ai's client-side context clamp collapses it. 0 disables.
+        maxTokensFloor: 16384
+        # Wire reasoning_effort value written into matched request bodies
+        # ("none" is accepted by llama.cpp build 10798 and maps onto the Qwen3
+        # chat template). "" disables this field write (the
+        # chat_template_kwargs gate still applies).
+        wireReasoning: none
+        # Merge enable_thinking: false into the body's chat_template_kwargs on
+        # matched request bodies (the primary Qwen3 thinking switch on
+        # llama.cpp). false never touches chat_template_kwargs.
+        enableThinkingOff: true
+        # Oversized-compaction rescue: when a compaction prompt is larger than
+        # one call for the target model (e.g. after switching from a 1M-
+        # context model to this 250k one), summarize it in chunks and merge,
+        # instead of letting dsh report "cannot compact".
+        chunking:
+          enabled: true
+          # Exact model id -> context window (tokens). Models not listed here
+          # are never chunked (fail open to the single-shot behavior). Set
+          # this to the value Unsloth Studio / llama-server actually runs with
+          # (check GET /v1/models -> details.n_ctx on the llama-server port).
+          contextWindows:
+            Qwen3.8-27B-GGUF: 262144
+          # Per-slice input budget as a fraction of the window (0, 1].
+          chunkRatio: 0.7
+          # Output cap for one partial per-slice summary.
+          chunkMaxTokens: 8192
+          # Output cap for the final merged checkpoint.
+          mergeMaxTokens: 16384
+          # Safety cap on partial summaries per rescue; larger ranges fail open.
+          maxChunks: 8
