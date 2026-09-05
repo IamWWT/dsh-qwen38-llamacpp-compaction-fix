@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.1.1 (2026-09-05)
+
+### Fixed
+
+- **Boot failure on source builds**: `@deepseek-ai/dsh-settings` has two API
+generations — npm releases (0.1.1-rc.x) export the free functions
+  `installSettingsSection`/`settingsNamespace`, while newer source-tree
+  releases (>= 0.1.3) expose `ctx.settings.installSection(...)` on the service
+  and export no free functions. The static named import crashed plugin loading
+  in source builds ("does not provide an export named
+  'installSettingsSection'"). The module now imports dsh-settings dynamically
+  and supports both generations: new API via the optional
+  `ctx.inject(["settings"], cb)` scope, legacy free function as fallback,
+  schema-resolved composition entry as the final fallback (no settings service
+  mounted). Works unchanged in npm and source builds.
+- Test coverage for both settings API generations added to `test/smoke.mjs`
+  (41 cases total).
+
 ## 0.1.0 (2026-09-05)
 
 Initial release. Local plugin for llama.cpp gateways (tuned on Unsloth Studio +

@@ -160,7 +160,18 @@
  *      models `["Qwen3.8-27B-GGUF"]`)
  */
 import z from "@deepseek-ai/schemastery";
-import { installSettingsSection, settingsNamespace } from "@deepseek-ai/dsh-settings";
+
+// dsh-settings has two API generations, and which one this module resolves to
+// depends on the host (npm releases vs source builds):
+//   - 0.1.1-rc.x: free functions `installSettingsSection` / `settingsNamespace`
+//     exported from the package;
+//   - >= 0.1.3:   no free functions; the settings SERVICE exposes
+//     `ctx.settings.installSection(owner, ns, schema, entry, hooks)` and
+//     consumers reach it through the optional `ctx.inject(["settings"], cb)`.
+// Import dynamically so one plugin source works with both; when neither
+// surface is available (or no settings service is mounted), the composition
+// entry — resolved against the schema below — remains the policy source.
+const settingsApi = await import("@deepseek-ai/dsh-settings").catch(() => null);
 
 /** Cordis plugin name used by loader diagnostics. */
 const name = "qwen38-llamacpp-compaction-fix";
@@ -315,8 +326,8 @@ const Config = z.object({
   chunking: ChunkingConfig.default({})
 });
 
-/** Settings namespace carrying this plugin's policy. */
-const COMPACT_EFFORT_SETTINGS_NAMESPACE = settingsNamespace("qwen38-llamacpp-compaction-fix");
+/** Settings namespace carrying this plugin's policy (plain string; both dsh-settings generations validate the same kebab-case pattern). */
+const COMPACT_EFFORT_SETTINGS_NAMESPACE = "qwen38-llamacpp-compaction-fix";
 
 /**
  * First line of the dsh-compaction-basic summarization instruction, which the
@@ -1137,12 +1148,37 @@ function apply(ctx, config = {}) {
     /* malformed entry: keep the raw config; policyOf stays defensive */
   }
   let current = () => resolved;
-  installSettingsSection(ctx, COMPACT_EFFORT_SETTINGS_NAMESPACE, Config, config, {
+  const hooks = {
     setSource: (source) => {
       current = source;
     },
     onChange: () => {}
-  });
+  };
+  // New API (dsh-settings >= 0.1.3, e.g. source builds): the settings service
+  // owns section installation; `ctx.inject` is optional — when no settings
+  // service is mounted the callback never runs and the entry stays the source.
+  let installed = false;
+  if (typeof ctx?.inject === "function") {
+    try {
+      ctx.inject(["settings"], (sctx) => {
+        if (typeof sctx?.settings?.installSection === "function") {
+          sctx.settings.installSection(ctx, COMPACT_EFFORT_SETTINGS_NAMESPACE, Config, resolved, hooks);
+          installed = true;
+        }
+      });
+    } catch {
+      /* fall through to the legacy surface */
+    }
+  }
+  // Legacy API (dsh-settings 0.1.1-rc.x): package-level free function.
+  if (!installed && typeof settingsApi?.installSettingsSection === "function") {
+    try {
+      const ns = typeof settingsApi.settingsNamespace === "function" ? settingsApi.settingsNamespace(COMPACT_EFFORT_SETTINGS_NAMESPACE) : COMPACT_EFFORT_SETTINGS_NAMESPACE;
+      settingsApi.installSettingsSection(ctx, ns, Config, config, hooks);
+    } catch {
+      /* entry-only fallback */
+    }
+  }
   const readPolicy = () => policyOf(current());
   installSamplingFetch(ctx, readPolicy);
   const warned = new Set();

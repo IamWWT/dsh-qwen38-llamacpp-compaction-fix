@@ -10,6 +10,7 @@
 import {
   COMPACTION_SIGNATURE,
   TITLE_SIGNATURE,
+  apply,
   applyThinkingOff,
   buildInternalBody,
   estimateBodyTokens,
@@ -193,6 +194,48 @@ console.log("internal call bodies:");
   check("stream forced false", out.stream, false);
   check("max_tokens set to the internal cap", out.max_tokens, 8192);
   check("messages replaced", out.messages, [{ role: "user", content: "slice" }]);
+}
+
+console.log("settings wiring:");
+{
+  // New API generation (dsh-settings >= 0.1.3): ctx.settings.installSection.
+  let newApiCall = null;
+  const hooksSink = {};
+  const ctxNew = {
+    logger: { info() {}, warn() {}, error() {} },
+    on() {},
+    llm: { resolveModelInfo: async () => ({}) },
+    inject: (deps, cb) => {
+      if (deps.includes("settings")) cb({ settings: { installSection: (owner, ns, schema, entry, hooks) => { newApiCall = { ns, entry }; Object.assign(hooksSink, hooks); } } });
+    }
+  };
+  const listeners = {};
+  ctxNew.on = (ev, fn) => { listeners[ev] = fn; };
+  apply(ctxNew, { models: ["Qwen3.8-27B-GGUF"] });
+  check("new API: installSection called with the namespace", newApiCall?.ns, "qwen38-llamacpp-compaction-fix");
+  check("new API: entry is schema-resolved (defaults filled)", [newApiCall?.entry?.effort, newApiCall?.entry?.maxTokensFloor, newApiCall?.entry?.chunking?.enabled], ["off", 16384, true]);
+  // setSource from the settings scope must re-point the live policy: after
+  // switching the allow-list away, a previously-allowed model passes through
+  // untouched (synchronous next) instead of entering the effort gate.
+  hooksSink.setSource(() => ({ ...newApiCall.entry, models: ["some-other-model"] }));
+  let passThrough = 0;
+  const r = listeners["llm/stream"]({ provider: "qwen", model: "Qwen3.8-27B-GGUF", purpose: "compaction" }, () => { passThrough++; });
+  check("new API: setSource re-points the live policy", [passThrough, r === undefined], [1, true]);
+}
+{
+  // No settings surface at all: entry-only fallback must still work.
+  const listeners = {};
+  const ctxBare = {
+    logger: { info() {}, warn() {}, error() {} },
+    on: (ev, fn) => { listeners[ev] = fn; },
+    llm: { resolveModelInfo: async () => ({}) }
+  };
+  apply(ctxBare, {});
+  const options = { provider: "qwen", model: "Qwen3.8-27B-GGUF", purpose: "compaction" };
+  let nextCalled = 0;
+  const gen = listeners["llm/stream"](options, () => { nextCalled++; return (async function* () { yield "x"; })(); });
+  for await (const _ of gen) {}
+  check("no settings service: waterfall still runs on entry defaults", nextCalled === 1 && options.reasoningEffort === undefined, true);
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
