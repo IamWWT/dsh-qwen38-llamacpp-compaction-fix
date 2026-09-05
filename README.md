@@ -67,40 +67,29 @@ dsh-compaction-basic 的摘要永远是**单次 LLM 调用**:把待压缩区间�
 
 ---
 
-## 安装(本机目录安装)
+## 安装(一句命令)
 
 前置:你的 DSH home 是 `~/.dsh-dev`(shell 函数 `dsh-dev()` 已设置
 `DSH_HOME=$HOME/.dsh-dev`)。插件源码在
 `~/Downloads/aigc/proj/deepseek/dsh-plugins/dsh-qwen38-llamacpp-compaction-fix/`。
 
-**第 1 步:把插件目录装进 profile**(等价于 pnpm add 本地目录):
+**安装/重装就是这一句**(实测:`dsh plugin add` 会自动把插件写进 profile 的
+`dependencies` **和** `dsh.profile.bundles` 两处,不需要手改任何配置文件):
 
 ```sh
 dsh-dev plugin --profile web add /home/wwt/Downloads/aigc/proj/deepseek/dsh-plugins/dsh-qwen38-llamacpp-compaction-fix
 ```
 
-**第 2 步:把插件注册进 profile 的 bundles**。编辑 `~/.dsh-dev/profiles/web/package.json`,
-在 `dsh.profile.bundles` 数组里加一行(位置随意,建议放最后):
+然后**重启 `dsh web`**(或刷新 GUI 页面)即生效。装完后 profile 里是
+`link:` 软链指向源码目录——改插件源码后重载/重启即可,无需重装。
 
-```json
-"dsh": {
-  "profile": {
-    "bundles": [
-      "@deepseek-ai/dsh-base",
-      "@deepseek-ai/dsh-web-app",
-      "dshmarket",
-      "dsh-better-sidebar",
-      "dsh-pocket",
-      "@huanlin/dsh-plugin-better-sidebar-plugin-office",
-      "@liustack/modsearch",
-      "dsh-vision-router",
-      "dsh-qwen38-llamacpp-compaction-fix"
-    ]
-  }
-}
+嫌命令长可以加个别名(写进 `~/.bashrc`):
+
+```sh
+alias dshfix='dsh-dev plugin --profile web add /home/wwt/Downloads/aigc/proj/deepseek/dsh-plugins/dsh-qwen38-llamacpp-compaction-fix'
 ```
 
-**第 3 步:重启 `dsh web`**(或刷新 GUI 页面)。插件随 profile 加载即生效。
+卸载:`dsh-dev plugin --profile web rm dsh-qwen38-llamacpp-compaction-fix`
 
 **验证是否装上:**
 
