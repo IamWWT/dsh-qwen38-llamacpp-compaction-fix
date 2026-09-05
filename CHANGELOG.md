@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.2.0 (2026-09-05)
+
+### Added
+
+- **Web settings card** (browser half): the plugin now ships a self-contained
+  client bundle (`client.js`, no build step) declared through `package.json`
+  `dsh.client` + the `./client` export. In dsh web it renders as the
+  “Qwen3.8 llama.cpp 压缩修复” card under Settings → Plugins → Plugin
+  configuration, editing every config key (model ids, context window,
+  thinking-off / wire-reasoning toggles, max_tokens floor, rescue switch,
+  and an advanced section with all sampling + chunk tuning fields). Saving
+  writes `settings.yaml` live; the “overrides default” badge stages a
+  reset-to-default (unset) op on save — same staging model as the built-in
+  cards. Chinese + English locale.
+- `test/client-smoke.mjs`: loads the client bundle in a VM with a stubbed
+  module loader, drives the Cordis surface (locale registration, slot
+  entry), renders the card through a minimal React renderer, and exercises
+  edit / save / invalid-block / reset-unset / discard against a fake
+  settings scope.
+- README: web-card usage section plus a troubleshooting section for
+  already-stuck conversations (minimal preset ships no compaction engine;
+  pi-ai rejects any `reasoningEffort` — including `off` — for models that
+  declare no reasoning capability, which is why this plugin's effort layer
+  stays silent for undeclared models and relies on the wire layers).
+
+### Verified end-to-end (real dsh web instance + headless Chrome via CDP)
+
+- card renders with live values from the real settings scope;
+- UI edit → save writes `settings.yaml` (`maxTokensFloor: 16000` observed on
+  disk); badge → save removes the key again (unset path), leaving no residue.
+
 ## 0.1.1 (2026-09-05)
 
 ### Fixed

@@ -1,6 +1,6 @@
 {
   "name": "dsh-qwen38-llamacpp-compaction-fix",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "DSH plugin (llama.cpp gateways, e.g. Unsloth Studio): local qwen3.8-27b compaction fix — thinking off for compaction-only calls with the model's non-thinking sampling parameters and a max_tokens floor; plus a chunked map-reduce rescue when the conversation is larger than the target model's context window (the 1M->250k model-switch 'cannot compact' case)",
   "keywords": ["dsh", "dsh-plugin", "deepseek-harness", "qwen", "qwen3.8", "llama.cpp", "unsloth", "compaction", "reasoning-effort", "enable_thinking"],
   "repository": {
@@ -12,7 +12,12 @@
   "license": "MIT",
   "type": "module",
   "main": "./index.js",
-  "files": ["index.js", "cordis.patch.yml", "README.md", "CHANGELOG.md", "LICENSE"],
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "files": ["index.js", "client.js", "cordis.patch.yml", "README.md", "CHANGELOG.md", "LICENSE"],
   "peerDependencies": {
     "@deepseek-ai/schemastery": ">=3.18.0 <4.0.0-0",
     "@deepseek-ai/dsh-settings": ">=0.1.1-rc.1 <0.1.2 || >=0.1.2-0 <0.2.0-0"
@@ -20,6 +25,14 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-primitives"
+      ],
+      "platform": "web"
     }
   }
 }

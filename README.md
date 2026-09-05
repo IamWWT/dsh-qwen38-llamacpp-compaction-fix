@@ -115,6 +115,26 @@ dsh-dev plugin --profile web add <克隆路径>/dsh-qwen38-llamacpp-compaction-f
 
 ## 使用与配置
 
+### 网页设置卡片(推荐)
+
+dsh web 的 **设置 → 插件 → 插件配置** 里有本插件的卡片
+(`Qwen3.8 llama.cpp 压缩修复`),全部字段可视化编辑:
+
+- 常用项:适用模型 ID、上下文窗口(tokens)、压缩/标题调用关闭思考、
+  reasoning_effort 字段值、max_tokens 下限、超大对话分片救援;
+- “高级参数”折叠区:六个采样参数 + 四个分片调优参数。
+
+编辑后点 **保存** 即写入 `settings.yaml` 并实时生效(无需重启);带“已覆盖默认值”
+徽章的字段点徽章可暂存一个“恢复默认”操作,保存后该键从 settings.yaml 移除、
+回落到插件内置默认。卡片与直接编辑 settings.yaml 等价——同一份数据、同一个
+命名空间 `qwen38-llamacpp-compaction-fix`。
+
+> 前提:插件通过 `dsh plugin add` 安装(见上节)。浏览器半是随包自带的
+> `client.js`(自包含 bundle,无构建步骤);若你的 dsh 版本太老没有
+> `dsh.client` 双半机制,卡片不会出现,但 settings.yaml 配置方式不受影响。
+
+### 手改 settings.yaml(等价方式)
+
 所有键都是可选的,默认值由 schema 补齐。优先级(高→低):
 
 1. `$DSH_HOME/settings.yaml`(即 `~/.dsh-dev/settings.yaml`)里的
@@ -165,6 +185,25 @@ qwen38-llamacpp-compaction-fix:
 | `chunking.maxChunks` | `8` | 单次救援的分片数安全上限;超出的区间 fail-open(转发原请求并告警)。 |
 
 调用自身显式携带的 `reasoningEffort` 永远优先于插件默认值。
+
+### 会话已经卡死(CONTEXT_WINDOW_EXCEEDED)怎么办
+
+本插件只能改写**实际发出的压缩调用**;如果 dsh 根本不发压缩调用,插件无物可改。
+两个已踩过的坑:
+
+1. **极简模式(minimal preset)不含压缩引擎**(standard 才有 `compaction-basic`)。
+   minimal 会话溢出时不会自动压缩,每轮直接报 `CONTEXT_WINDOW_EXCEEDED` 卡死。
+   解法:在会话输入框的预设选择器里把该会话从“极简模式”切到**标准模式**,再发任意
+   消息——压力检查会先触发一次完整压缩(本插件保证这次调用关思考、带采样参数、
+   超窗时自动分片),压缩完成后对话回到窗口内,即可继续。本地 27B 上首次压缩
+   可能要十几分钟到半小时,属正常。
+2. **给模型打 effort 戳的前提是模型声明了 reasoning 能力**。pi-ai 对“未声明
+   reasoning 的模型 + 任意 `reasoningEffort`(包括 `off`)”直接抛
+   `UNSUPPORTED_REASONING_EFFORT`——任何想给压缩调用关思考的上游组件(本插件的
+   effort 层、或第三方压缩插件)都会因此让压缩整体失败。本插件对此是安全的:
+   模型未声明能力时 effort 层自动静默,只靠 wire 层(`chat_template_kwargs` +
+   `reasoning_effort`)关思考。若你在 settings.yaml 给模型声明了
+   `reasoningEfforts`(至少含 `off` 和一个更高档),effort 层才会真正打戳。
 
 ### 模型名必须匹配:先读这段
 
