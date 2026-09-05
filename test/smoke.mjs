@@ -258,9 +258,9 @@ console.log("settings wiring:");
 
 console.log("manual compaction command:");
 {
-  // A ctx that provides the commands service: the global /qwen38-compact
-  // registration must land inside an injected child context.
-  let registered = null;
+  // A ctx that provides the commands service: the global manual-command
+  // registrations must land inside an injected child context.
+  const registeredDefs = [];
   const injectCalls = [];
   // Drive generator effects to completion (the real runtime unwinds them on
   // teardown; the test just needs the body to run).
@@ -281,24 +281,114 @@ console.log("manual compaction command:");
     inject: (deps, cb) => {
       injectCalls.push([...deps]);
       if (deps.includes("commands")) cb({
-        commands: { register: (def) => { registered = def; return () => {}; } },
-        effect: runEffect
+        commands: { register: (def) => { registeredDefs.push(def); return () => {}; } },
+        effect: runEffect,
+        // The real cordis child context exposes `reflect`; the engine's
+        // Service constructor registers itself through it.
+        reflect: { provide() {} }
       });
     }
   };
   apply(ctxCmd, {});
   check("command: inject declares the required services", injectCalls.some((d) => d.includes("commands") && d.includes("tokenMeter") && d.includes("sessions")), true);
-  check("command: registered under the fixed name", registered?.name, "qwen38-compact");
-  check("command: handler is async", typeof registered?.handler, "function");
-  // Handler against an unavailable engine (import failure) reports cleanly.
+  const names = registeredDefs.map((d) => d.name).sort();
+  check("command: both manual commands registered by default", JSON.stringify(names), JSON.stringify(["qwen38-compact", "qwen38-new-context"]));
+  for (const def of registeredDefs) {
+    check(`command: ${def.name} handler is async`, typeof def.handler, "function");
+  }
+  // Handler against a non-maintenance agent maps to the friendly busy text.
   const inv = { agent: {}, signal: new AbortController().signal, commandId: "c1" };
-  const out = await registered.handler(inv);
-  check("command: missing engine yields a friendly error (no throw)", typeof out?.text === "string" && out.text.length > 0, true);
+  for (const def of registeredDefs) {
+    const out = await def.handler(inv);
+    check(`command: ${def.name} bad agent yields a friendly error (no throw)`, typeof out?.text === "string" && out.text.length > 0, true);
+    // Regression guard: the engine must actually construct on the handler
+    // path. `new makeHardResetEngine(E)(args)` parses as `new (E-subclass(args))`
+    // and dies with "cannot be invoked without 'new'" — which this text check
+    // would otherwise swallow as a generic friendly error.
+    check(`command: ${def.name} engine constructs (no precedence bug)`, !/construction failed/.test(out.text), true);
+  }
 }
 {
-  // command.enabled: false must suppress the registration entirely.
+  // Standard-preset sessions already register the built-in `compaction`
+  // service; constructing another engine there used to throw
+  // `service "compaction" has been registered`. The manual engines must stay
+  // usable in that environment (they run detached from the registry).
+  const registeredStd = [];
+  const runEffectStd = (fn) => {
+    if (typeof fn !== "function") return () => {};
+    const result = fn();
+    if (result && typeof result.next === "function") {
+      let step = result.next();
+      while (!step.done) step = result.next();
+    }
+    return () => {};
+  };
+  const ctxStd = {
+    logger: { info() {}, warn() {}, error() {} },
+    on() {},
+    llm: { resolveModelInfo: async () => ({}) },
+    effect: runEffectStd,
+    inject: (deps, cb) => {
+      if (deps.includes("commands")) cb({
+        commands: { register: (def) => { registeredStd.push(def); return () => {}; } },
+        effect: runEffectStd,
+        reflect: {
+          provide(name) {
+            if (name === "compaction") throw new Error('service "compaction" has been registered at <built-in>');
+          }
+        }
+      });
+    }
+  };
+  apply(ctxStd, {});
+  const invStd = { agent: {}, signal: new AbortController().signal, commandId: "c2" };
+  for (const def of registeredStd) {
+    const out = await def.handler(invStd);
+    check(`command(std session): ${def.name} survives the built-in compaction service`, typeof out?.text === "string" && !/construction failed|has been registered/.test(out.text), true);
+  }
+}
+{
+  // command.newContext.enabled: false suppresses ONLY the hard-reset command.
   let registered = null;
   const runEffectOff = (fn) => {
+    if (typeof fn !== "function") return () => {};
+    const result = fn();
+    if (result && typeof result.next === "function") {
+      let step = result.next();
+      while (!step.done) step = result.next();
+    }
+    return () => {};
+  };
+  const ctxNewCtxOff = {
+    logger: { info() {}, warn() {}, error() {} },
+    on() {},
+    llm: { resolveModelInfo: async () => ({}) },
+    effect: runEffectOff,
+    inject: (deps, cb) => {
+      if (deps.includes("commands")) cb({ commands: { register: (def) => { registered = def; return () => {}; } }, effect: runEffectOff });
+    }
+  };
+  apply(ctxNewCtxOff, { command: { newContext: { enabled: false } } });
+  check("command: newContext disabled keeps only /qwen38-compact", registered?.name, "qwen38-compact");
+}
+{
+  // The hard-reset engine's summarizer is a template: it must not touch the
+  // LLM seam and must return the unmarked SummaryResult variant.
+  const { makeHardResetEngine } = await import("../index.js");
+  class FakeBase { constructor(ctx, config) { this.ctx = ctx; this.config = config; } }
+  let llmTouched = false;
+  const HardReset = makeHardResetEngine(FakeBase);
+  const instance = new HardReset({ llm: { stream() { llmTouched = true; } } }, { auto: false });
+  const result = await instance.summarize();
+  check("new-context: summarizer makes no LLM call", llmTouched, false);
+  check("new-context: summary is a single text block", Array.isArray(result.summary) && result.summary.length === 1 && result.summary[0].type === "text" && /硬重置/.test(result.summary[0].text), true);
+  check("new-context: unmarked variant (no llmStreamCall)", !("llmStreamCall" in result) && typeof result.provider === "string" && typeof result.model === "string", true);
+}
+{
+  // command.enabled: false must suppress the /qwen38-compact registration
+  // (the hard-reset command is gated by its own flag and stays registered).
+  const registeredDefsOff = [];
+  const runEffectOff2 = (fn) => {
     if (typeof fn !== "function") return () => {};
     const result = fn();
     if (result && typeof result.next === "function") {
@@ -311,13 +401,13 @@ console.log("manual compaction command:");
     logger: { info() {}, warn() {}, error() {} },
     on() {},
     llm: { resolveModelInfo: async () => ({}) },
-    effect: runEffectOff,
+    effect: runEffectOff2,
     inject: (deps, cb) => {
-      if (deps.includes("commands")) cb({ commands: { register: (def) => { registered = def; return () => {}; } }, effect: runEffectOff });
+      if (deps.includes("commands")) cb({ commands: { register: (def) => { registeredDefsOff.push(def); return () => {}; } }, effect: runEffectOff2 });
     }
   };
   apply(ctxOff, { command: { enabled: false } });
-  check("command: disabled via config", registered, null);
+  check("command: compact disabled via config leaves only /qwen38-new-context", JSON.stringify(registeredDefsOff.map((d) => d.name)), JSON.stringify(["qwen38-new-context"]));
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

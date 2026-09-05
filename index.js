@@ -290,10 +290,19 @@ const ChunkingConfig = z.object({
  * receiving session — including sessions whose agent preset ships no
  * compaction engine at all (e.g. the minimal preset), where neither automatic
  * compaction nor the built-in `/compact` exist.
+ *
+ * The optional `/qwen38-new-context` command (feature 4, after Codex's
+ * token-budget hard-rollover direction) does the same transaction with a
+ * TEMPLATE summarizer: no LLM call, instant, zero token cost — the surface is
+ * replaced by a fixed marker and the model continues from environment state.
  */
 const CommandConfig = z.object({
   /** Master switch for the `/qwen38-compact` command. Default `true`. */
-  enabled: z.boolean().default(true)
+  enabled: z.boolean().default(true),
+  /** The `/qwen38-new-context` hard-reset command. Default `{ enabled: true }`. */
+  newContext: z.object({
+    enabled: z.boolean().default(true)
+  }).default({})
 });
 
 /** Plugin config (all keys optional; defaults applied by the schema). */
@@ -336,7 +345,7 @@ const Config = z.object({
   enableThinkingOff: z.boolean().default(true),
   /** Oversized-compaction rescue policy (feature 2); see ChunkingConfig. */
   chunking: ChunkingConfig.default({}),
-  /** Manual `/qwen38-compact` command; see CommandConfig. */
+  /** Manual commands (`/qwen38-compact`, `/qwen38-new-context`); see CommandConfig. */
   command: CommandConfig.default({})
 });
 
@@ -1166,8 +1175,9 @@ function chooseEffort(configured, offeredIds) {
 // Feature 3 — manual compaction command (/qwen38-compact)
 // ---------------------------------------------------------------------------
 
-/** Command name users type in the composer. */
+/** Command names users type in the composer. */
 const MANUAL_COMPACT_COMMAND = "qwen38-compact";
+const MANUAL_NEW_CONTEXT_COMMAND = "qwen38-new-context";
 
 /**
  * Resolve (building on first use) the dsh-compaction-basic engine class.
@@ -1196,87 +1206,224 @@ function manualEngineClass() {
   return engineClassPromise;
 }
 
-/** Friendly text for the known ManualCompactionError codes (duck-typed). */
-function manualCompactFailureText(error) {
-  const code = error && typeof error === "object" && typeof error.code === "string" ? error.code : "";
-  switch (code) {
-    case "busy": return "Agent 正忙(有进行中的轮次或排队任务),等它空闲后再试。";
-    case "cancelled": return "压缩已取消,会话未改动。";
-    case "changed": return "待压缩的历史在摘要完成前发生了变化,本次未生效;会话未改动,可重试。";
-    case "summary": return "模型没有产出可用的摘要,本次未生效;会话未改动,可重试。";
-    case "commit": return "压缩未能干净收尾,部分历史可能已变化;请检查会话状态后再试。";
-    case "persistence": return "压缩完成但会话保存失败;请检查存储后重试。";
-    default: return undefined;
-  }
+/**
+ * Fixed marker text installed by `/qwen38-new-context`. Kept short on purpose:
+ * the engine refuses any summary that is not smaller than the shadowed
+ * content, so the marker doubles as a minimum-size gate (a few lines of
+ * history are not worth resetting). The engine wraps it in its standard
+ * checkpoint framing.
+ */
+function hardResetMarkerText() {
+  return [
+    "## 上下文硬重置 (manual hard reset)",
+    `- 本次由 /${MANUAL_NEW_CONTEXT_COMMAND} 于 ${new Date().toISOString()} 手动执行:此前对话历史已从模型可见上下文中丢弃。`,
+    "- 原始事件日志仍在磁盘(会话日志可回查);环境状态(文件、git、运行中的服务)不受影响。",
+    "- 请从当前环境状态继续任务,不要重述已完成的工作。"
+  ].join("\n");
 }
 
 /**
- * Register the global `/qwen38-compact` command. The engine and the command
- * live inside an injected child context that declares exactly the services
- * the manual transaction needs (`commands`, `tokenMeter`, `sessions`; `llm`
- * is inherited from this plugin's own inject list). Global (not agent-scoped)
- * registration makes the command visible to every session — including
- * minimal-preset sessions, whose agents mount no command plugins at all.
+ * Build the hard-reset engine class on top of the official one: the entire
+ * manual transaction (idle check, range selection, stability assertion,
+ * commit protocol, flush, rollback) stays official; only the summarizer is
+ * swapped for a template that makes NO LLM call. The returned result uses
+ * the "unmarked summarizer" SummaryResult variant (no `llmStreamCall`),
+ * which dsh-compaction-basic explicitly supports for template/remote
+ * backends.
+ * @param Engine - the resolved BasicCompactionEngine class.
+ */
+function makeHardResetEngine(Engine) {
+  return class Qwen38HardResetEngine extends Engine {
+    // `summarize` is the engine's sole subclass hook; TS marks it protected,
+    // which is convention-only at runtime — plain JS overrides freely.
+    async summarize() {
+      return {
+        summary: [{ type: "text", text: hardResetMarkerText() }],
+        provider: name,
+        model: "hard-reset-template"
+      };
+    }
+  };
+}
+
+/**
+ * Friendly text for compaction failures. ManualCompactionError carries a
+ * `code`; the engine's plain validation errors (e.g. "summary is not smaller
+ * than the shadowed content") are matched by message pattern.
+ */
+function manualCompactFailureText(error, { hardReset = false } = {}) {
+  const code = error && typeof error === "object" && typeof error.code === "string" ? error.code : "";
+  switch (code) {
+    case "busy": return "Agent 正忙(有进行中的轮次或排队任务),等它空闲后再试。";
+    case "cancelled": return hardReset ? "硬重置已取消,会话未改动。" : "压缩已取消,会话未改动。";
+    case "changed": return "历史在操作完成前发生了变化,本次未生效;会话未改动,可重试。";
+    case "summary": return "模型没有产出可用的摘要,本次未生效;会话未改动,可重试。";
+    case "commit": return "操作未能干净收尾,部分历史可能已变化;请检查会话状态后再试。";
+    case "persistence": return "操作完成但会话保存失败;请检查存储后重试。";
+    default: break;
+  }
+  const message = error && typeof error.message === "string" ? error.message : "";
+  if (message.includes("not smaller than the shadowed")) {
+    return hardReset
+      ? "可重置的历史太短(丢弃后标记反而更大),本次未生效;会话未改动。"
+      : "可压缩的历史太短(摘要不会比原文小),本次未生效;会话未改动。";
+  }
+  return undefined;
+}
+
+/**
+ * Register the global manual commands (`/qwen38-compact` and, when enabled,
+ * `/qwen38-new-context`). The engines and the commands live inside an
+ * injected child context that declares exactly the services the manual
+ * transaction needs (`commands`, `tokenMeter`, `sessions`; `llm` is inherited
+ * from this plugin's own inject list). Global (not agent-scoped) registration
+ * makes the commands visible to every session — including minimal-preset
+ * sessions, whose agents mount no command plugins at all.
+ *
+ * Both engines are constructed with `auto: false`: NO automatic hooks (no
+ * pre-step pressure checks, no overflow-retry listeners); they exist purely
+ * to execute manual transactions. The compact engine's summarization call
+ * goes through `ctx.llm.stream({ purpose: "compaction" })`, so this plugin's
+ * wire layers (thinking-off, sampling, max_tokens floor) and the oversized-
+ * compaction chunked rescue apply exactly as they do to the built-in engine.
+ * The new-context engine swaps the summarizer for a fixed template — no LLM
+ * call at all (see makeHardResetEngine).
  *
  * When any of the required services is absent from the deployment, cordis
  * never runs the callback: the plugin loads fine and simply has no command.
  * @param ctx - this plugin's context (must expose `inject`).
+ * @param flags - which commands to register (live-reload re-runs apply;
+ *   duplicate registration is a no-op).
  */
-function registerManualCompactCommand(ctx) {
+
+/**
+ * A pass-through view of the injected child context that swallows service
+ * registration. `CompactionEngine` hard-codes `super(ctx, "compaction")`, so
+ * every engine instance registers itself as the `compaction` service — which
+ * collides with the built-in engine in standard-preset sessions (and would
+ * shadow it). The manual engines are used exclusively through their instances
+ * (`compactNow`), never looked up by name, so detaching them from the service
+ * registry is safe and makes both session types behave identically.
+ * @param sctx - the injected child context.
+ * @returns a proxy that no-ops `reflect.provide` and passes everything else through.
+ */
+function detachedEngineCtx(sctx) {
+  return new Proxy(sctx, {
+    get(target, prop, receiver) {
+      if (prop === "reflect") {
+        const reflect = Reflect.get(target, prop, receiver);
+        if (reflect && typeof reflect === "object") {
+          return new Proxy(reflect, {
+            get(rTarget, rProp) {
+              if (rProp === "provide") return () => {};
+              return Reflect.get(rTarget, rProp);
+            }
+          });
+        }
+      }
+      return Reflect.get(target, prop, receiver);
+    }
+  });
+}
+
+function registerManualCommands(ctx, flags) {
   if (typeof ctx?.inject !== "function") return;
+  const { compactEnabled = true, newContextEnabled = false } = flags ?? {};
   try {
-    ctx.inject(["commands", "tokenMeter", "sessions"], function qwen38ManualCompact(sctx) {
+    ctx.inject(["commands", "tokenMeter", "sessions"], function qwen38ManualCommands(sctx) {
       const boot = (async () => {
         const resolved = await manualEngineClass();
         if (resolved.error !== undefined) return { error: resolved.error };
         try {
-          // `auto: false` — the engine registers NO automatic hooks (no
-          // pre-step pressure checks, no overflow-retry listeners); it exists
-          // purely to execute manual transactions. Its summarization call goes
-          // through `ctx.llm.stream({ purpose: "compaction" })`, so this
-          // plugin's wire layers (thinking-off, sampling, max_tokens floor) and
-          // the oversized-compaction chunked rescue apply exactly as they do
-          // to the built-in engine.
-          return { engine: new resolved.Engine(sctx, { auto: false }) };
+          const engines = {};
+          // Detached contexts: the manual engines must not register (or
+          // shadow) the `compaction` service — see detachedEngineCtx.
+          if (compactEnabled) {
+            engines.compact = new resolved.Engine(detachedEngineCtx(sctx), { auto: false });
+          }
+          if (newContextEnabled) {
+            // Parens are load-bearing: `new f(x)(y)` parses as `new (f(x)(y))`,
+            // which would invoke the returned class without `new`.
+            const HardReset = makeHardResetEngine(resolved.Engine);
+            engines.newContext = new HardReset(detachedEngineCtx(sctx), { auto: false });
+          }
+          return { engines };
         } catch (error) {
-          return { error: `manual compaction engine construction failed (${error?.message ?? error})` };
+          return { error: `manual command engine construction failed (${error?.message ?? error})` };
         }
       })();
-      try {
-        sctx.effect(function* () {
-          yield sctx.commands.register({
-            name: MANUAL_COMPACT_COMMAND,
-            description: "手动把当前会话历史压缩成摘要检查点(极简模式等无内置压缩引擎的会话也可用;超窗输入自动分片)",
-            handler: async (invocation) => {
-              const ready = await boot;
-              if (ready.error !== undefined) {
-                return { kind: "error", text: `无法执行手动压缩:${ready.error}` };
-              }
-              try {
-                const result = await ready.engine.compactNow(invocation.agent, invocation.signal, invocation.commandId);
-                if (result === null) {
-                  return { kind: "success", text: "当前会话还没有可压缩的历史。" };
-                }
-                return {
-                  kind: "success",
-                  text: `已压缩 ${result.shadowedSeqs.length} 条历史(约 ${result.shadowedTokenCount} tokens)为摘要检查点。`,
-                  sourceEventSeq: result.summarySeq
-                };
-              } catch (error) {
-                if (invocation.signal?.aborted === true) return { kind: "error", text: "压缩已取消,会话未改动。" };
-                const friendly = manualCompactFailureText(error);
-                if (friendly !== undefined) return { kind: "error", text: friendly };
-                throw error;
-              }
-            }
-          });
-        }, `${name}: manual compaction command`);
-      } catch {
-        /* duplicate registration (in-process re-apply): keep the first */
+
+      const definitions = [];
+      if (compactEnabled) {
+        definitions.push({
+          name: MANUAL_COMPACT_COMMAND,
+          description: "手动把当前会话历史压缩成摘要检查点(调用模型总结,保信息;极简模式等无内置压缩引擎的会话也可用;超窗输入自动分片)",
+          handler: async (invocation) => runManualTransaction({
+            boot, kind: "compact", invocation, hardReset: false,
+            noHistoryText: "当前会话还没有可压缩的历史。",
+            successText: (result) => `已压缩 ${result.shadowedSeqs.length} 条历史(约 ${result.shadowedTokenCount} tokens)为摘要检查点。`
+          })
+        });
+      }
+      if (newContextEnabled) {
+        definitions.push({
+          name: MANUAL_NEW_CONTEXT_COMMAND,
+          description: "硬重置当前会话上下文:不调用模型、秒级完成,历史直接丢弃(环境状态不变);适合任务状态都在文件/git 里的场景",
+          handler: async (invocation) => runManualTransaction({
+            boot, kind: "newContext", invocation, hardReset: true,
+            noHistoryText: "当前会话还没有可重置的历史。",
+            successText: (result) => `已硬重置上下文:${result.shadowedSeqs.length} 条历史(约 ${result.shadowedTokenCount} tokens)已丢弃,新窗口标记已写入;环境状态不变。`
+          })
+        });
+      }
+
+      for (const definition of definitions) {
+        try {
+          sctx.effect(function* () {
+            yield sctx.commands.register(definition);
+          }, `${name}: manual ${definition.name} command`);
+        } catch {
+          /* duplicate registration (in-process re-apply): keep the first */
+        }
       }
     });
   } catch {
     /* inject unavailable or services missing: no command, plugin still loads */
+  }
+}
+
+/**
+ * Shared handler body for both manual commands: resolve the engine, run the
+ * official transaction on the invocation's agent, and map failures to
+ * friendly text (the transaction itself rolls back on any failure).
+ * @param opts - boot promise + kind + invocation + presentation texts.
+ */
+async function runManualTransaction({ boot, kind, invocation, hardReset, noHistoryText, successText }) {
+  const ready = await boot;
+  if (ready.error !== undefined) {
+    return { kind: "error", text: `无法执行手动操作:${ready.error}` };
+  }
+  const engine = ready.engines?.[kind];
+  if (!engine) {
+    return { kind: "error", text: "该命令已被配置禁用,请检查 settings.yaml 的 command 段。" };
+  }
+  try {
+    const result = await engine.compactNow(invocation.agent, invocation.signal, invocation.commandId);
+    if (result === null) {
+      return { kind: "success", text: noHistoryText };
+    }
+    return {
+      kind: "success",
+      text: successText(result),
+      sourceEventSeq: result.summarySeq
+    };
+  } catch (error) {
+    if (invocation.signal?.aborted === true) {
+      return { kind: "error", text: hardReset ? "硬重置已取消,会话未改动。" : "压缩已取消,会话未改动。" };
+    }
+    const friendly = manualCompactFailureText(error, { hardReset });
+    if (friendly !== undefined) return { kind: "error", text: friendly };
+    throw error;
   }
 }
 
@@ -1385,12 +1532,19 @@ function apply(ctx, config = {}) {
       yield* next();
     })();
   });
-  // Feature 3: the manual compaction command. Gated by config (live-reloaded:
-  // a settings.yaml edit re-runs apply; duplicate registration is a no-op).
-  const commandEnabled = resolved.command === null || typeof resolved.command !== "object"
-    ? true
-    : resolved.command.enabled !== false;
-  if (commandEnabled) registerManualCompactCommand(ctx);
+  // Features 3/4: the manual commands. Gated by config (live-reloaded: a
+  // settings.yaml edit re-runs apply; duplicate registration is a no-op).
+  const commandConfig = resolved.command === null || typeof resolved.command !== "object"
+    ? {}
+    : resolved.command;
+  const compactEnabled = commandConfig.enabled !== false;
+  const newContextEnabled = !(commandConfig.newContext && commandConfig.newContext.enabled === false);
+  if (compactEnabled || newContextEnabled) {
+    registerManualCommands(ctx, { compactEnabled, newContextEnabled });
+  }
 }
 
-export { name, inject, Config, COMPACT_EFFORT_SETTINGS_NAMESPACE, apply, MANUAL_COMPACT_COMMAND };
+export {
+  name, inject, Config, COMPACT_EFFORT_SETTINGS_NAMESPACE, apply,
+  MANUAL_COMPACT_COMMAND, MANUAL_NEW_CONTEXT_COMMAND, makeHardResetEngine
+};

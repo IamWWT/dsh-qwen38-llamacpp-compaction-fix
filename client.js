@@ -35,7 +35,7 @@ window.__ModuleLoader__.load({
 				nav: 'Qwen3.8 压缩修复',
 				description: '让本地 llama.cpp(Qwen3.8)上的会话压缩可靠完成:辅助调用关闭思考、使用非思考模式推荐采样参数;超大对话自动分片压缩。保存后实时生效,无需重启。',
 				scopeNote: '作用域:本页全部参数只作用于「压缩摘要」与「会话标题」两类辅助调用。正常对话完全不受影响,仍使用你 llama.cpp 服务端的参数(temp、top_p、惩罚项、思考模式等)。',
-				commandHint: '手动压缩:在任意会话输入框输入 /qwen38-compact,立即把该会话历史压缩成摘要检查点(极简模式等无内置压缩引擎的会话也可用;超窗历史自动分片)。',
+				commandHint: '手动操作:在任意会话输入框输入 /qwen38-compact(模型总结,保信息,大会话走分片)或 /qwen38-new-context(硬重置:不调模型、秒级完成、历史丢弃)。极简模式等无内置压缩引擎的会话也可用。',
 				basicTitle: '基础设置',
 				advancedTitle: '高级参数(仅作用于压缩/标题调用)',
 				modelsLabel: '适用模型 ID',
@@ -50,6 +50,8 @@ window.__ModuleLoader__.load({
 				maxTokensFloorHint: '辅助调用的 max_tokens 至少抬到该值(只升不降),防止客户端上下文钳制吃掉输出预算;0 停用。',
 				rescueLabel: '超大对话分片救援',
 				rescueHint: '开启:压缩提示词超过单次调用容量时,自动切分逐段摘要再合并,而不是报“无法压缩”。',
+				newContextLabel: '硬重置命令 /qwen38-new-context',
+				newContextHint: '开启后任意会话可硬重置上下文:不调用模型、秒级完成、历史直接丢弃(环境状态不变)。',
 				temperatureLabel: 'temperature',
 				topPLabel: 'top_p',
 				topKLabel: 'top_k',
@@ -86,13 +88,14 @@ window.__ModuleLoader__.load({
 				tipChunkMaxTokens: '依赖「超大对话分片救援」开启。单个分片摘要的输出上限(token)。',
 				tipMergeMaxTokens: '依赖「超大对话分片救援」开启。最终合并 checkpoint 的输出上限(token)。',
 				tipMaxChunks: '依赖「超大对话分片救援」开启。单次救援的分片数安全上限;超出的区间 fail-open(转发原请求并告警)。',
+				tipNewContext: '独立项(不依赖其他项)。语义与 /qwen38-compact 不同:本命令不调用模型、不做摘要——直接把模型可见历史丢弃并写入新窗口标记,秒级完成、零 token 成本。适合任务状态都在文件/git 里的场景;纯问答会话(状态不在环境里)建议用 /qwen38-compact。',
 			},
 			en: {
 				title: 'Qwen3.8 llama.cpp compaction fix',
 				nav: 'Qwen3.8 compaction fix',
 				description: 'Makes session compaction reliable on local llama.cpp (Qwen3.8): thinking off + non-thinking sampling for auxiliary calls; oversized conversations compact in chunks. Changes apply live, no restart.',
 				scopeNote: 'Scope: every parameter on this page applies ONLY to auxiliary calls — compaction summaries and session titles. Normal conversation is untouched and keeps your llama.cpp server parameters (temp, top_p, penalties, thinking mode).',
-				commandHint: 'Manual compaction: type /qwen38-compact in any session composer to compact that session’s history into a summary checkpoint right now (works even in presets without a built-in compaction engine; oversized history is chunked automatically).',
+				commandHint: 'Manual operations: type /qwen38-compact (model-summarized, keeps information, chunked when oversized) or /qwen38-new-context (hard reset: no LLM call, instant, history discarded) in any session composer. Works even in presets without a built-in compaction engine.',
 				basicTitle: 'Basics',
 				advancedTitle: 'Advanced (auxiliary calls only)',
 				modelsLabel: 'Model ids',
@@ -107,6 +110,8 @@ window.__ModuleLoader__.load({
 				maxTokensFloorHint: 'Raises auxiliary-call max_tokens to at least this value (never lowers) so the client-side context clamp cannot eat the output budget. 0 disables.',
 				rescueLabel: 'Oversized-compaction chunked rescue',
 				rescueHint: 'On: when a compaction prompt exceeds one call, summarize slices sequentially and merge instead of failing with “cannot compact”.',
+				newContextLabel: 'Hard-reset command /qwen38-new-context',
+				newContextHint: 'When on, any session can hard-reset its context: no LLM call, instant, history discarded (environment state untouched).',
 				temperatureLabel: 'temperature',
 				topPLabel: 'top_p',
 				topKLabel: 'top_k',
@@ -141,6 +146,7 @@ window.__ModuleLoader__.load({
 				tipChunkMaxTokens: 'Depends on “oversized-compaction chunked rescue” being on. Per-slice summary output cap (tokens).',
 				tipMergeMaxTokens: 'Depends on “oversized-compaction chunked rescue” being on. Final merged-checkpoint output cap (tokens).',
 				tipMaxChunks: 'Depends on “oversized-compaction chunked rescue” being on. Safety cap on slices per rescue; ranges beyond it fail open (forward the original request with a warning).',
+				tipNewContext: 'Independent item (no dependencies). Different semantics from /qwen38-compact: this command makes NO LLM call and writes no summary — it discards the model-visible history and installs a fresh-window marker, instantly and at zero token cost. Best when task state lives in files/git; for pure Q&A sessions (state not in the environment) prefer /qwen38-compact.',
 			},
 		};
 
@@ -205,6 +211,9 @@ window.__ModuleLoader__.load({
 			},
 			{
 				id: 'chunkingEnabled', path: () => ['chunking', 'enabled'], labelKey: 'rescueLabel', hintKey: 'rescueHint', tipKey: 'tipChunkingEnabled', bool: true,
+			},
+			{
+				id: 'newContextEnabled', path: () => ['command', 'newContext', 'enabled'], labelKey: 'newContextLabel', hintKey: 'newContextHint', tipKey: 'tipNewContext', bool: true,
 			},
 		];
 

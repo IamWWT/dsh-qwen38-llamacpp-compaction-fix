@@ -65,6 +65,7 @@ const BASE_VALUE = {
   wireReasoning: 'none',
   enableThinkingOff: true,
   chunking: { enabled: true, contextWindows: { 'Qwen3.8-27B-GGUF': 262144 }, chunkRatio: 0.7, chunkMaxTokens: 8192, mergeMaxTokens: 16384, maxChunks: 8 },
+  command: { enabled: true, newContext: { enabled: true } },
 }
 
 let userValue = { maxTokensFloor: 20000 } // a pre-existing user override
@@ -275,6 +276,16 @@ face.discard()
 props = { t, useQwen38Card: (sel) => sel(face.hooks.qwen38Card.getSnapshot()) }
 html = render(entry.component(props))
 assert.ok(!/<button[^>]*>保存<\/button>/.test(html), 'no save button after discard')
+
+// ---------------------------------------------------------------------------
+// Hard-reset command switch (nested command.newContext.enabled path).
+// ---------------------------------------------------------------------------
+assert.match(html, /硬重置命令 \/qwen38-new-context/, 'new-context switch label renders')
+face.edit('newContextEnabled', 'false')
+await face.save()
+assert.deepEqual(norm(mutateCalls.at(-1).ops), [
+  { op: 'set', path: ['command', 'newContext', 'enabled'], value: false },
+], 'new-context switch writes the nested command path')
 
 // ---------------------------------------------------------------------------
 // Boolean field + clear semantics.

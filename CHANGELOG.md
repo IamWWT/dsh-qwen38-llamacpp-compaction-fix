@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.5.0 (2026-09-06)
+
+### Added — `/qwen38-new-context` hard-reset command (the researched Codex third feature, now implemented)
+
+- **New global command `/qwen38-new-context`**: drops the session's visible history from the model context in seconds with **zero LLM calls and zero token cost**, writing a fixed "new window" marker instead of an LLM summary. The whole manual transaction (idle check, range selection, commit protocol, flush, rollback) stays the official `dsh-compaction-basic` implementation — only the summarizer is swapped for a template via its documented subclass hook (`summarize`, unmarked-SummaryResult variant).
+- **Independent switch** `command.newContext.enabled` (default on), separate from `command.enabled`; web settings card gains a third labeled switch (已启用/已停用) with tooltip, and the left-nav section's command hint now documents both commands.
+- README: feature 3 in the intro, dedicated usage section, settings.yaml keys, research-notes section updated from "research only" to implemented.
+
+### Fixed (both found by live e2e during this release)
+
+- **Engine construction precedence bug**: `new makeHardResetEngine(Engine)(ctx, cfg)` parses as `new (makeHardResetEngine(Engine)(ctx, cfg))` — the returned class was invoked *without* `new`, so on first use both manual commands failed with "Class constructor … cannot be invoked without 'new'". Now constructed via an intermediate binding; regression-guarded in smoke.
+- **Service-registration collision in standard-preset sessions**: `CompactionEngine` hard-codes `super(ctx, "compaction")`, so any extra engine instance collided with the built-in compaction service (or would shadow it). Manual engines are now constructed on a detached context view that no-ops `reflect.provide` — they run purely through their instances and never touch the registry, in both minimal and standard sessions; regression-guarded in smoke.
+
+### Tests
+
+- smoke: 37 → 58 cases (dual-command registration + per-command gating, hard-reset engine behavior, the two regression guards above).
+- Verified end-to-end on a sandbox home and on the live source-build instance: reset of a ~2.3k-token history completed in ~4s with no LLM call; strict amnesia check (exact-wording recall) confirms pre-reset history is gone from the model context while the event log on disk stays intact.
+
 ## 0.4.0 (2026-09-05)
 
 ### Changed (settings UI, browser half only)

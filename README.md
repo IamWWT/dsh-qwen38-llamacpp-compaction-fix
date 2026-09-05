@@ -1,7 +1,7 @@
 # Qwen3.8 (llama.cpp) Compaction Fix
 
 给 **llama.cpp 网关**(本机经 Unsloth Studio 启动的 `llama-server`)上的本地
-**qwen3.8-27b** 修复 dsh(DeepSeek Harness)压缩(compaction)问题的插件。它做两件事:
+**qwen3.8-27b** 修复 dsh(DeepSeek Harness)压缩(compaction)问题的插件。它做三件事:
 
 1. **压缩时不思考**:dsh 发起的两个辅助调用(压缩摘要、会话标题生成)只针对这些调用
    关闭 thinking,并套用模型"非思考模式"推荐的采样参数;正常对话、子代理、其他模型
@@ -10,6 +10,11 @@
    Qwen3.8-27B 时,dsh 的单次摘要调用装不下整段对话,会报"无法压缩"并反复溢出。
    本插件在 fetch 层检测到这种情况后,自动把对话切成多片逐片摘要、再合并成最终
    checkpoint,让压缩照常完成。
+3. **手动硬重置命令 `/qwen38-new-context`**:不调模型、秒级、零 token 成本地把当前
+   会话历史从模型可见上下文中丢弃(事件日志仍完整保留在磁盘),写入一个"新窗口"
+   标记后继续。与 `/qwen38-compact`(调模型总结、保信息、慢)互补,适合任务状态都
+   在文件/git/运行环境里的场景——参考 Codex token-budget + hard context rollover
+   的设计(见文末调研笔记)。
 
 > **范围:llama.cpp 网关。** 本文档中的所有 wire 字段均在
 > llama.cpp build 10798(Unsloth 团队编译)+ Unsloth Studio(:8880 OpenAI 兼容端点)
@@ -122,14 +127,15 @@ dsh web 的 **设置** 面板里有两个入口(同一份数据、同一个命�
 
 1. **左侧导航独立条目「Qwen3.8 压缩修复」**(v0.3.0 起)——专属页面,顶部有
    作用域提示(本页参数只影响压缩/标题辅助调用,正常对话不受影响)和
-   `/qwen38-compact` 手动压缩命令的用法说明;
+   `/qwen38-compact` / `/qwen38-new-context` 两个手动命令的用法说明;
 2. **设置 → 插件 → 插件配置** 里的卡片(`Qwen3.8 llama.cpp 压缩修复`)。
 
 界面布局:
 
-- **基础设置**:适用模型 ID;两个拨动开关(带“已启用/已停用”文字,不是裸复选框):
-  压缩/标题调用关闭思考、超大对话分片救援;reasoning_effort 字段值(**下拉选择**
-  none/low/medium/high/不写该字段,不用手填);max_tokens 下限;
+- **基础设置**:适用模型 ID;三个拨动开关(带“已启用/已停用”文字,不是裸复选框):
+  压缩/标题调用关闭思考、超大对话分片救援、**硬重置命令 `/qwen38-new-context`
+  (v0.5 起)**;reasoning_effort 字段值(**下拉选择** none/low/medium/high/不写该
+  字段,不用手填);max_tokens 下限;
 - **上下文窗口(tokens)——每个模型一行**:模型列表里每个 id 各有一行,改哪个
   一目了然;
 - **高级参数(仅作用于压缩/标题调用)** 折叠区:六个采样参数 + 四个分片调优参数。
@@ -162,6 +168,21 @@ dsh web 的 **设置** 面板里有两个入口(同一份数据、同一个命�
 - 失败:事务整体回滚,会话不变,提示原因(模型未产出摘要 / 会话正忙 / 引擎不可用),
   可重试;
 - `command.enabled: false`(settings.yaml)可关闭该命令。
+
+#### 手动硬重置命令:`/qwen38-new-context`
+
+在**任意会话**的输入框输入 `/qwen38-new-context` 并回车,**不调用模型**、秒级完成:
+把当前全部可见历史从模型上下文中丢弃,写入一段固定的"新窗口标记"(说明历史已重置、
+原始日志仍在磁盘、请从环境状态继续),然后会话照常可用。事务实现复用官方
+`dsh-compaction-basic`(idle 检查、范围选择、提交协议、回滚全部是官方的),只是把
+摘要器换成固定模板——所以**零 LLM 调用、零 token 成本**。
+
+- 成功:`已硬重置上下文:N 条历史(约 X tokens)已丢弃,新窗口标记已写入;环境状态不变。`
+- 与 `/qwen38-compact` 的区别:压缩是"有损但保信息"(模型总结,慢);硬重置是
+  "直接丢弃"(秒级,赌任务状态在磁盘环境里)。两者都是官方事务、失败整体回滚。
+- 可重置的历史太短时(标记反而比历史大)会提示不生效;会话正忙时拒绝执行;
+- `command.newContext.enabled: false`(settings.yaml 或网页设置卡的"硬重置"开关)
+  可关闭该命令。
 
 #### FAQ
 
@@ -236,10 +257,16 @@ qwen38-llamacpp-compaction-fix:
     chunkMaxTokens: 8192
     mergeMaxTokens: 16384
     maxChunks: 8
+  command:               # 手动命令(任意会话可用)
+    enabled: true        # /qwen38-compact;false 关闭
+    newContext:          # /qwen38-new-context(硬重置,不调模型)
+      enabled: true
 ```
 
 | 键 | 默认 | 含义 |
 |---|---|---|
+| `command.enabled` | `true` | `/qwen38-compact` 手动压缩命令;false 则不注册。 |
+| `command.newContext.enabled` | `true` | `/qwen38-new-context` 硬重置命令(不调模型、秒级);false 则不注册。两者独立开关,可只留一个。 |
 | `effort` | `"off"` | 瀑布层给匹配调用打的 reasoning effort。取值顺序:配置值 → `off` → `low`;模型一个都不提供时保持模型默认(仅当 wire 层 thinking-off 也全关时才告警一次)。`""` 关闭该策略。 |
 | `purposes` | `["compaction"]` | 瀑布层作用的 LLM 调用 purpose 标签。 |
 | `models` | `["Qwen3.8-27B-GGUF"]` | 精确模型 id(大小写敏感,取 settings.yaml 中 `llm-pi-ai.providers.<provider>.models[].id`)。空列表关闭整个策略。**见下节"模型名必须匹配"。** |
@@ -293,16 +320,17 @@ qwen38-llamacpp-compaction-fix:
 **没有任何匹配时插件静默不动作**:所有请求逐字节原样通过,不告警。装了插件却仍见
 截断 checkpoint / "无法压缩",先查模型 id。
 
-## 调研笔记:第三个功能的候选
+## 调研笔记:Codex token budget + 硬上下文切换(已落地为 `/qwen38-new-context`)
 
 **Codex 正在从“摘要式 compaction”转向“token budget + 硬上下文切换”**——
 2026-09-03 的 rust-v0.153.0 发布说明已白纸黑字写出默认关闭的
 `features.context_management.experimental_mode`(token-budget context、history/notes
 工具、`new_context` 硬重置原语);传统摘要 compaction 仍在并行维护。
-本插件可移植的形态是 **`/qwen38-new-context`**:不调模型、秒级、零 token 成本的
-“断片式”硬重置(赌任务状态在磁盘环境里),与 `/qwen38-compact`(保信息、慢)互补;
-后续可加 handoff-note 变体(只基于最近一小段历史写交接,一次廉价调用)。
-**仅调研未实现**,事实核实、设计路径与风险清单见
+本插件移植了其中最可落地的一条:**`/qwen38-new-context`**——不调模型、秒级、零 token
+成本的"断片式"硬重置(赌任务状态在磁盘环境里),与 `/qwen38-compact`(保信息、慢)
+互补。token-budget 注入(history/notes 工具)在 dsh 没有对应钩子,未移植;
+handoff-note 变体(只基于最近一小段历史写交接,一次廉价调用)留作后续。
+事实核实、设计路径与风险清单见
 [docs/codex-token-budget-hard-rollover.md](docs/codex-token-budget-hard-rollover.md)。
 
 ## 工作原理(五层)
@@ -337,9 +365,11 @@ qwen38-llamacpp-compaction-fix:
 
 ## 测试
 
-- `test/smoke.mjs` — 门控逻辑冒烟(37 例):允许/拒绝模型、缺 model、空允许列表、
+- `test/smoke.mjs` — 门控逻辑冒烟(58 例):允许/拒绝模型、缺 model、空允许列表、
   签名引用回归用例、chat_template_kwargs 合并、thinking-off 关闭时采样/floor 仍生效、
-  token 估算(CJK 保守)、分片(tool 配对、预算、截断)、内部请求体构造。
+  token 估算(CJK 保守)、分片(tool 配对、预算、截断)、内部请求体构造、双命令注册
+  与各自门控、硬重置引擎(零 LLM 调用/单文本块/unmarked 变体)、以及两个回归守卫:
+  引擎构造优先级陷阱(`new f(x)(y)` 解析)与标准会话内置 `compaction` 服务共存。
 - `test/rescue-e2e.mjs` — R2 端到端(29 例,mock 传输):3 分片 + 1 合并的调用序列、
   每片 thinking-off/采样透传、tools 剔除、SSE 合成流(role delta → 单一 content chunk →
   stop → [DONE])。
