@@ -60,3 +60,11 @@
           mergeMaxTokens: 16384
           # Safety cap on partial summaries per rescue; larger ranges fail open.
           maxChunks: 8
+        # Manual compaction command: type /qwen38-compact in any session to
+        # compact its history right now. Works even in agent presets that ship
+        # no compaction engine (e.g. the minimal preset), where neither
+        # automatic compaction nor the built-in /compact exists. The
+        # summarization call goes through this plugin's wire layers, so
+        # thinking stays off and oversized input is chunked automatically.
+        command:
+          enabled: true

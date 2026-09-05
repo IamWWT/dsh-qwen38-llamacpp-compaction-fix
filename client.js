@@ -7,9 +7,10 @@
  * `window.__ModuleLoader__.load`. No build step, no imports beyond the client
  * baseline (react, dsh-client-ui-primitives, dsh-client-store).
  *
- * What it renders: one card in Settings → Plugins → Plugin configuration for
- * the `qwen38-llamacpp-compaction-fix` settings namespace. The tab pairs slot
- * entries with served namespaces by key; this entry claims that key.
+ * What it renders:
+ *   - a dedicated left-nav settings section (Settings → “Qwen3.8 压缩修复”);
+ *   - the same card inside Settings → Plugins → Plugin configuration.
+ * Both views edit the one `qwen38-llamacpp-compaction-fix` settings namespace.
  */
 window.__ModuleLoader__.load({
 	id: 'dsh-qwen38-llamacpp-compaction-fix',
@@ -31,20 +32,24 @@ window.__ModuleLoader__.load({
 		const LOCALES = {
 			zh: {
 				title: 'Qwen3.8 llama.cpp 压缩修复',
-				description: '压缩摘要与会话标题等辅助调用关闭思考、改写采样参数;超大对话自动分片压缩(1M→250k 模型切换场景)。保存后实时生效,无需重启。',
+				nav: 'Qwen3.8 压缩修复',
+				description: '让本地 llama.cpp(Qwen3.8)上的会话压缩可靠完成:辅助调用关闭思考、使用非思考模式推荐采样参数;超大对话自动分片压缩。保存后实时生效,无需重启。',
+				scopeNote: '作用域:本页全部参数只作用于「压缩摘要」与「会话标题」两类辅助调用。正常对话完全不受影响,仍使用你 llama.cpp 服务端的参数(temp、top_p、惩罚项、思考模式等)。',
+				commandHint: '手动压缩:在任意会话输入框输入 /qwen38-compact,立即把该会话历史压缩成摘要检查点(极简模式等无内置压缩引擎的会话也可用;超窗历史自动分片)。',
+				basicTitle: '基础设置',
+				advancedTitle: '高级参数(仅作用于压缩/标题调用)',
 				modelsLabel: '适用模型 ID',
 				modelsHint: '逗号分隔,须与 settings.yaml 中 llm-pi-ai providers 声明的模型 id 完全一致;留空则整个策略停用。',
-				contextWindowLabel: '上下文窗口(tokens)',
-				contextWindowHint: '当前模型的 llama-server 实际 n_ctx(查 GET /v1/models → details.n_ctx)。未列出的模型永不分片,按单次调用处理。',
+				windowsTitle: '上下文窗口(tokens)——每个模型一行',
+				windowsHint: '该模型 llama-server 实际运行的 -c(Unsloth Studio 改过 -c 或换 GGUF 后,用 curl /v1/models 查 context_length 并同步到这里)。只影响“何时分片”:设小=更早分片(慢一点),设大=可能单次溢出(安全回退)。',
 				enableThinkingOffLabel: '压缩/标题调用关闭思考',
-				enableThinkingOffHint: '向匹配的请求体写入 chat_template_kwargs.enable_thinking=false(Qwen3 在 llama.cpp 上的主开关)。',
+				enableThinkingOffHint: '开启:向匹配的辅助请求写入 chat_template_kwargs.enable_thinking=false(Qwen3 在 llama.cpp 上的主开关)。正常对话不受影响。',
 				wireReasoningLabel: 'reasoning_effort 字段值',
-				wireReasoningHint: '同时写入请求体的 reasoning_effort(双保险);留空表示不写该字段。llama.cpp 接受 none/low/medium/high。',
+				wireReasoningHint: '双保险:同时写入请求体的 reasoning_effort(llama.cpp 接受 none/low/medium/high);留空表示不写该字段。',
 				maxTokensFloorLabel: 'max_tokens 下限',
-				maxTokensFloorHint: '压缩请求的 max_tokens 至少抬到该值(只升不降),防止客户端上下文钳制吃掉输出预算;0 停用。',
+				maxTokensFloorHint: '辅助调用的 max_tokens 至少抬到该值(只升不降),防止客户端上下文钳制吃掉输出预算;0 停用。',
 				rescueLabel: '超大对话分片救援',
-				rescueHint: '压缩提示词超过单次调用容量时,自动切分逐段摘要再合并,而不是报“无法压缩”。',
-				advancedTitle: '高级参数(采样与分片调优)',
+				rescueHint: '开启:压缩提示词超过单次调用容量时,自动切分逐段摘要再合并,而不是报“无法压缩”。',
 				temperatureLabel: 'temperature',
 				topPLabel: 'top_p',
 				topKLabel: 'top_k',
@@ -55,6 +60,8 @@ window.__ModuleLoader__.load({
 				chunkMaxTokensLabel: '单片摘要上限 chunkMaxTokens',
 				mergeMaxTokensLabel: '合并摘要上限 mergeMaxTokens',
 				maxChunksLabel: '最大分片数 maxChunks',
+				on: '已启用',
+				off: '已停用',
 				save: '保存',
 				saving: '保存中…',
 				discard: '放弃修改',
@@ -67,20 +74,24 @@ window.__ModuleLoader__.load({
 			},
 			en: {
 				title: 'Qwen3.8 llama.cpp compaction fix',
-				description: 'Thinking off + sampling rewrite for auxiliary calls (compaction / session title); oversized conversations are compacted in chunks (1M→250k model switch). Changes apply live, no restart.',
+				nav: 'Qwen3.8 compaction fix',
+				description: 'Makes session compaction reliable on local llama.cpp (Qwen3.8): thinking off + non-thinking sampling for auxiliary calls; oversized conversations compact in chunks. Changes apply live, no restart.',
+				scopeNote: 'Scope: every parameter on this page applies ONLY to auxiliary calls — compaction summaries and session titles. Normal conversation is untouched and keeps your llama.cpp server parameters (temp, top_p, penalties, thinking mode).',
+				commandHint: 'Manual compaction: type /qwen38-compact in any session composer to compact that session’s history into a summary checkpoint right now (works even in presets without a built-in compaction engine; oversized history is chunked automatically).',
+				basicTitle: 'Basics',
+				advancedTitle: 'Advanced (auxiliary calls only)',
 				modelsLabel: 'Model ids',
 				modelsHint: 'Comma-separated; must exactly match the model ids declared under llm-pi-ai providers in settings.yaml. Empty disables the whole policy.',
-				contextWindowLabel: 'Context window (tokens)',
-				contextWindowHint: 'The llama-server n_ctx actually running for this model (GET /v1/models → details.n_ctx). Unlisted models are never chunked.',
+				windowsTitle: 'Context window (tokens) — one row per model',
+				windowsHint: 'The llama-server -c actually running for that model (after changing -c or the GGUF in Unsloth Studio, check context_length via curl /v1/models and sync it here). Only affects WHEN chunking kicks in: smaller = earlier chunking (slower), larger = possible single-call overflow (safe fallback).',
 				enableThinkingOffLabel: 'Disable thinking on compaction/title calls',
-				enableThinkingOffHint: 'Writes chat_template_kwargs.enable_thinking=false into matched request bodies (the primary Qwen3 switch on llama.cpp).',
+				enableThinkingOffHint: 'On: writes chat_template_kwargs.enable_thinking=false into matched auxiliary requests (the primary Qwen3 switch on llama.cpp). Normal conversation is unaffected.',
 				wireReasoningLabel: 'reasoning_effort field value',
-				wireReasoningHint: 'Also written into matched bodies as a second gate; blank omits the field. llama.cpp accepts none/low/medium/high.',
+				wireReasoningHint: 'Belt-and-braces: also written into the request body (llama.cpp accepts none/low/medium/high); blank omits the field.',
 				maxTokensFloorLabel: 'max_tokens floor',
-				maxTokensFloorHint: 'Raises compaction max_tokens to at least this value (never lowers) so the client-side context clamp cannot eat the output budget. 0 disables.',
+				maxTokensFloorHint: 'Raises auxiliary-call max_tokens to at least this value (never lowers) so the client-side context clamp cannot eat the output budget. 0 disables.',
 				rescueLabel: 'Oversized-compaction chunked rescue',
-				rescueHint: 'When a compaction prompt exceeds one call, summarize slices sequentially and merge instead of failing with "cannot compact".',
-				advancedTitle: 'Advanced (sampling & chunk tuning)',
+				rescueHint: 'On: when a compaction prompt exceeds one call, summarize slices sequentially and merge instead of failing with “cannot compact”.',
 				temperatureLabel: 'temperature',
 				topPLabel: 'top_p',
 				topKLabel: 'top_k',
@@ -91,6 +102,8 @@ window.__ModuleLoader__.load({
 				chunkMaxTokensLabel: 'per-slice output cap (chunkMaxTokens)',
 				mergeMaxTokensLabel: 'merge output cap (mergeMaxTokens)',
 				maxChunksLabel: 'max slices (maxChunks)',
+				on: 'on',
+				off: 'off',
 				save: 'Save',
 				saving: 'Saving…',
 				discard: 'Discard',
@@ -104,8 +117,7 @@ window.__ModuleLoader__.load({
 		};
 
 		// ------------------------------------------------------------------
-		// Field registry. path(value) may depend on the current section value
-		// (the context-window entry is keyed by the first model id).
+		// Field registry. path(value) may depend on the current section value.
 		// ------------------------------------------------------------------
 		function getAt(obj, path) {
 			let cur = obj;
@@ -126,9 +138,9 @@ window.__ModuleLoader__.load({
 			return true;
 		}
 
-		function firstModel(value) {
+		function modelList(value) {
 			const models = value && value.models;
-			return Array.isArray(models) && typeof models[0] === 'string' ? models[0] : '';
+			return Array.isArray(models) ? models.filter((m) => typeof m === 'string' && m.length > 0) : [];
 		}
 
 		const numberParse = (text) => {
@@ -146,10 +158,6 @@ window.__ModuleLoader__.load({
 					const items = text.split(/[,，\s]+/).map((s) => s.trim()).filter(Boolean);
 					return items.length > 0 ? { kind: 'set', value: items } : { kind: 'clear' };
 				},
-			},
-			{
-				id: 'contextWindow', path: (v) => ['chunking', 'contextWindows', firstModel(v)], labelKey: 'contextWindowLabel', hintKey: 'contextWindowHint', numeric: true,
-				format: (v) => typeof v === 'number' ? String(v) : '', parse: numberParse,
 			},
 			{
 				id: 'enableThinkingOff', path: () => ['enableThinkingOff'], labelKey: 'enableThinkingOffLabel', hintKey: 'enableThinkingOffHint', bool: true,
@@ -198,6 +206,8 @@ window.__ModuleLoader__.load({
 				// clear:true} so saving emits an unset op (the "overrides default" badge is
 				// what users click to drop a stored override).
 				this.staged = new Map();
+				// modelId -> { text, clear } for the per-model context windows.
+				this.stagedWindows = new Map();
 				this.saving = false;
 				this.failed = false;
 				this.store = createSnapshotStore(this.project());
@@ -228,12 +238,37 @@ window.__ModuleLoader__.load({
 					}
 					fields[f.id] = { text, overridden, invalid };
 				}
+				// Per-model context windows (one row per model id in `models`).
+				const models = modelList(value);
+				const stagedModels = this.staged.has('models') && !this.staged.get('models').clear
+					? this.staged.get('models').text.split(/[,，\s]+/).map((s) => s.trim()).filter(Boolean)
+					: models;
+				const windows = {};
+				for (const model of stagedModels) {
+					const path = ['chunking', 'contextWindows', model];
+					const raw = getAt(value, path);
+					const entry = this.stagedWindows.get(model);
+					let text;
+					let overridden;
+					let invalid = false;
+					if (entry === undefined) {
+						text = typeof raw === 'number' ? String(raw) : '';
+						overridden = hasAt(snap.user, path);
+					} else {
+						text = entry.text;
+						const write = entry.clear ? { kind: 'clear' } : numberParse(entry.text);
+						overridden = write !== undefined && write.kind === 'set';
+						invalid = !entry.clear && write === undefined;
+					}
+					windows[model] = { text, overridden, invalid };
+				}
 				return {
 					status: snap ? snap.status : 'loading',
 					writable: Boolean(snap && snap.writable),
-					model: firstModel(value),
+					models: stagedModels,
 					fields,
-					dirty: this.staged.size > 0,
+					windows,
+					dirty: this.staged.size > 0 || this.stagedWindows.size > 0,
 					saving: this.saving,
 					failed: this.failed,
 				};
@@ -260,8 +295,24 @@ window.__ModuleLoader__.load({
 				this.publish();
 			}
 
+			editWindow(model, text) {
+				if (typeof model !== 'string' || model.length === 0) return;
+				this.stagedWindows.set(model, { text, clear: false });
+				this.failed = false;
+				this.publish();
+			}
+
+			resetWindow(model) {
+				const snap = this.scope.getSnapshot();
+				const base = getAt((snap && snap.base) || {}, ['chunking', 'contextWindows', model]);
+				this.stagedWindows.set(model, { text: typeof base === 'number' ? String(base) : '', clear: true });
+				this.failed = false;
+				this.publish();
+			}
+
 			discard() {
 				this.staged.clear();
+				this.stagedWindows.clear();
 				this.failed = false;
 				this.publish();
 			}
@@ -281,6 +332,12 @@ window.__ModuleLoader__.load({
 					const path = f.path(value);
 					ops.push(write.kind === 'set' ? { op: 'set', path, value: write.value } : { op: 'unset', path });
 				}
+				for (const [model, entry] of this.stagedWindows) {
+					const write = entry.clear ? { kind: 'clear' } : numberParse(entry.text);
+					if (write === undefined) return; // invalid window blocks the save
+					const path = ['chunking', 'contextWindows', model];
+					ops.push(write.kind === 'set' ? { op: 'set', path, value: write.value } : { op: 'unset', path });
+				}
 				if (ops.length === 0) return;
 				this.saving = true;
 				this.failed = false;
@@ -288,6 +345,7 @@ window.__ModuleLoader__.load({
 				try {
 					await this.scope.mutate(ops, snap.revision);
 					this.staged.clear();
+					this.stagedWindows.clear();
 				} catch (error) {
 					this.failed = true;
 				} finally {
@@ -302,6 +360,8 @@ window.__ModuleLoader__.load({
 					hooks: { qwen38Card: this.store },
 					edit: (id, text) => this.edit(id, text),
 					resetField: (id) => this.resetField(id),
+					editWindow: (model, text) => this.editWindow(model, text),
+					resetWindow: (model) => this.resetWindow(model),
 					save: () => this.save(),
 					discard: () => this.discard(),
 				};
@@ -309,24 +369,77 @@ window.__ModuleLoader__.load({
 		}
 
 		// ------------------------------------------------------------------
-		// Card UI (plain React; primitives for the themed atoms).
+		// UI atoms (plain React + inline styles; primitives for themed inputs).
 		// ------------------------------------------------------------------
-		const rowStyle = { display: 'flex', alignItems: 'baseline', gap: '12px', padding: '6px 0' };
-		const labelStyle = { flex: '0 0 40%', fontSize: '13px', opacity: 0.9 };
-		const controlStyle = { flex: '1 1 auto', display: 'flex', flexDirection: 'column', gap: '2px' };
-		const hintStyle = { fontSize: '11px', opacity: 0.55, lineHeight: 1.4 };
-		const badgeStyle = { fontSize: '11px', opacity: 0.6, marginLeft: '8px' };
+		const labelWidth = '230px';
+		const rowStyle = { display: 'flex', alignItems: 'flex-start', gap: '16px', padding: '9px 0', borderBottom: '1px solid rgba(128,128,128,0.12)' };
+		const labelStyle = { flexBasis: labelWidth, flexGrow: 0, flexShrink: 0, fontSize: '13px', paddingTop: '6px' };
+		const controlStyle = { flex: '1 1 auto', minWidth: 0, display: 'flex', flexDirection: 'column', gap: '4px' };
+		const inputRowStyle = { display: 'flex', alignItems: 'center', gap: '8px' };
+		const hintStyle = { fontSize: '11.5px', opacity: 0.6, lineHeight: 1.45 };
+		const badgeStyle = { fontSize: '11px', opacity: 0.65, marginLeft: '8px', border: 'none', background: 'none', cursor: 'pointer', color: 'inherit', textDecoration: 'underline dotted' };
+		const sectionTitleStyle = { fontSize: '13px', fontWeight: 600, margin: '18px 0 4px', opacity: 0.85 };
+		const scopeBannerStyle = {
+			margin: '10px 0 12px', padding: '9px 12px', fontSize: '12.5px', lineHeight: 1.5,
+			borderRadius: '6px', border: '1px solid #b45309',
+			background: 'color-mix(in srgb, #f59e0b 12%, transparent)',
+		};
+		const commandHintStyle = { margin: '0 0 6px', fontSize: '12.5px', lineHeight: 1.5, opacity: 0.75 };
+
+		/**
+		 * Self-explanatory on/off switch (role=switch): a pill with a knob plus
+		 * an explicit state word, so the current value never depends on reading
+		 * a tiny checkbox.
+		 */
+		function Switch(props) {
+			const on = props.checked;
+			const disabled = Boolean(props.disabled);
+			return h('button', {
+				type: 'button',
+				role: 'switch',
+				'aria-checked': on ? 'true' : 'false',
+				disabled,
+				onClick: () => { if (!disabled) props.onChange(!on); },
+				style: {
+					display: 'inline-flex', alignItems: 'center', gap: '8px',
+					border: '1px solid rgba(128,128,128,0.35)', borderRadius: '999px',
+					background: on ? 'color-mix(in srgb, #16a34a 18%, transparent)' : 'transparent',
+					padding: '4px 12px 4px 6px', cursor: disabled ? 'default' : 'pointer',
+					fontSize: '12.5px', color: 'inherit', opacity: disabled ? 0.5 : 1,
+				},
+			},
+				h('span', {
+					style: {
+						width: '26px', height: '15px', borderRadius: '999px', position: 'relative', flex: '0 0 auto',
+						background: on ? '#16a34a' : 'rgba(128,128,128,0.4)', transition: 'background 120ms',
+					},
+				}, h('span', {
+					style: {
+						position: 'absolute', top: '1.5px', left: on ? '12.5px' : '1.5px',
+						width: '12px', height: '12px', borderRadius: '50%', background: '#fff', transition: 'left 120ms',
+					},
+				})),
+				h('span', null, on ? props.onLabel : props.offLabel),
+			);
+		}
+
+		function OverrideBadge(props) {
+			if (!props.overridden) return null;
+			return h('button', { type: 'button', style: badgeStyle, title: props.t('reset'), onClick: props.onClick }, props.t('overridden'));
+		}
 
 		function FieldRow(props) {
 			const t = props.t;
-			const state = props.state;
+			const state = props.state || {};
+			const disabled = Boolean(props.disabled);
 			if (props.field.bool) {
 				return h('div', { style: rowStyle },
 					h('label', { style: labelStyle, htmlFor: props.id }, t(props.field.labelKey)),
 					h('div', { style: controlStyle },
-						h('input', {
-							id: props.id, type: 'checkbox', checked: state.text === 'true', disabled: props.disabled,
-							onChange: (e) => props.onEdit(e.target.checked ? 'true' : 'false'),
+						h(Switch, {
+							checked: state.text === 'true', disabled,
+							onLabel: t('on'), offLabel: t('off'),
+							onChange: (next) => props.onEdit(next ? 'true' : 'false'),
 						}),
 						h('span', { style: hintStyle }, t(props.field.hintKey)),
 					),
@@ -335,53 +448,103 @@ window.__ModuleLoader__.load({
 			return h('div', { style: rowStyle },
 				h('label', { style: labelStyle, htmlFor: props.id }, t(props.field.labelKey)),
 				h('div', { style: controlStyle },
-					h(Input, {
-						id: props.id, value: state.text, disabled: props.disabled, 'aria-invalid': state.invalid || undefined,
-						style: state.invalid ? { borderColor: '#c0392b' } : undefined,
-						onChange: (e) => props.onEdit(e.target.value),
-					}),
-					h('span', { style: hintStyle }, t(props.field.hintKey)),
+					h('div', { style: inputRowStyle },
+						h(Input, {
+							id: props.id, value: state.text || '', disabled, 'aria-invalid': state.invalid || undefined,
+							style: Object.assign({ width: '260px', maxWidth: '100%' }, state.invalid ? { borderColor: '#c0392b' } : {}),
+							onChange: (e) => props.onEdit(e.target.value),
+						}),
+						h(OverrideBadge, { overridden: state.overridden, t, onClick: () => props.onReset() }),
+					),
+					props.field.hintKey ? h('span', { style: hintStyle }, t(props.field.hintKey)) : null,
 				),
-				state.overridden
-					? h('button', {
-						type: 'button', style: Object.assign({ border: 'none', background: 'none', cursor: 'pointer', color: 'inherit' }, badgeStyle),
-						title: t('reset'), onClick: () => props.onReset(),
-					}, t('overridden'))
-					: null,
+			);
+		}
+
+		function WindowRow(props) {
+			const t = props.t;
+			const state = props.state || {};
+			const disabled = Boolean(props.disabled);
+			return h('div', { style: rowStyle },
+				h('label', { style: labelStyle, htmlFor: props.id }, props.model),
+				h('div', { style: controlStyle },
+					h('div', { style: inputRowStyle },
+						h(Input, {
+							id: props.id, value: state.text || '', disabled, 'aria-invalid': state.invalid || undefined, placeholder: '—',
+							style: Object.assign({ width: '200px', maxWidth: '100%' }, state.invalid ? { borderColor: '#c0392b' } : {}),
+							onChange: (e) => props.onEdit(e.target.value),
+						}),
+						h(OverrideBadge, { overridden: state.overridden, t, onClick: () => props.onReset() }),
+					),
+				),
+			);
+		}
+
+		// Shared field body (used by both the plugins-tab card and the dedicated
+		// settings section): scope banner + grouped fields + action footer.
+		function Fields(props) {
+			const t = props.t;
+			const s = props.useQwen38Card((x) => x);
+			const disabled = !s.writable || s.saving;
+			return h(React.Fragment, null,
+				h('p', { style: scopeBannerStyle }, '⚠️ ', t('scopeNote')),
+				s.status === 'unavailable' ? h('p', null, t('unavailable')) : null,
+				h('h4', { style: sectionTitleStyle }, t('basicTitle')),
+				FIELDS.map((f) => h(FieldRow, {
+					key: f.id, id: props.idPrefix + '-' + f.id, t, field: f, state: s.fields[f.id],
+					disabled,
+					onEdit: (text) => props.edit(f.id, text),
+					onReset: () => props.resetField(f.id),
+				})),
+				h('div', { style: rowStyle },
+					h('label', { style: labelStyle }, t('windowsTitle')),
+					h('div', { style: controlStyle },
+						s.models.length === 0 ? h('span', { style: hintStyle }, '—') : s.models.map((model) => h(WindowRow, {
+							key: model, id: props.idPrefix + '-win-' + model.replace(/[^a-zA-Z0-9_-]/g, '_'), t,
+							model, state: s.windows[model], disabled,
+							onEdit: (text) => props.editWindow(model, text),
+							onReset: () => props.resetWindow(model),
+						})),
+						h('span', { style: hintStyle }, t('windowsHint')),
+					),
+				),
+				h('details', null,
+					h('summary', { style: Object.assign({ display: 'block' }, sectionTitleStyle, { cursor: 'pointer' }) }, t('advancedTitle')),
+					ADVANCED_FIELDS.map((f) => h(FieldRow, {
+						key: f.id, id: props.idPrefix + '-' + f.id, t, field: f, state: s.fields[f.id],
+						disabled,
+						onEdit: (text) => props.edit(f.id, text),
+						onReset: () => props.resetField(f.id),
+					})),
+				),
+				h('footer', { style: { display: 'flex', gap: '8px', alignItems: 'center', padding: '12px 0 0' } },
+					s.dirty && s.writable ? h(Button, { variant: 'primary', size: 'sm', disabled: s.saving || Object.values(s.fields).some((x) => x.invalid) || Object.values(s.windows).some((x) => x.invalid), onClick: () => props.save() }, s.saving ? t('saving') : t('save')) : null,
+					s.dirty && s.writable ? h(Button, { variant: 'ghost', size: 'sm', disabled: s.saving, onClick: () => props.discard() }, t('discard')) : null,
+					!s.writable && s.status === 'ready' ? h('span', { style: hintStyle }, t('readOnly')) : null,
+					s.failed ? h('span', { style: Object.assign({ fontSize: '12px' }, hintStyle) }, t('saveFailed')) : null,
+				),
 			);
 		}
 
 		function Card(props) {
 			const t = props.t;
-			const s = props.useQwen38Card((x) => x);
-			const disabled = !s.writable || s.saving;
 			return h('section', { 'aria-label': t('title') },
 				h('header', null,
 					h('h3', null, t('title')),
 					h('p', { style: hintStyle }, t('description')),
 				),
-				s.status === 'unavailable' ? h('p', null, t('unavailable')) : null,
-				FIELDS.map((f) => h(FieldRow, {
-					key: f.id, id: 'plugin-config-qwen38-' + f.id, t, field: f, state: s.fields[f.id],
-					disabled: disabled || (f.id === 'contextWindow' && s.model === ''),
-					onEdit: (text) => props.edit(f.id, text),
-					onReset: () => props.resetField(f.id),
-				})),
-				h('details', null,
-					h('summary', { style: { fontSize: '13px', padding: '8px 0', cursor: 'pointer' } }, t('advancedTitle')),
-					ADVANCED_FIELDS.map((f) => h(FieldRow, {
-						key: f.id, id: 'plugin-config-qwen38-' + f.id, t, field: f, state: s.fields[f.id],
-						disabled: disabled,
-						onEdit: (text) => props.edit(f.id, text),
-						onReset: () => props.resetField(f.id),
-					})),
-				),
-				h('footer', { style: { display: 'flex', gap: '8px', alignItems: 'center', padding: '8px 0' } },
-					s.dirty && s.writable ? h(Button, { variant: 'primary', size: 'sm', disabled: s.saving || Object.values(s.fields).some((x) => x.invalid), onClick: () => props.save() }, s.saving ? t('saving') : t('save')) : null,
-					s.dirty && s.writable ? h(Button, { variant: 'ghost', size: 'sm', disabled: s.saving, onClick: () => props.discard() }, t('discard')) : null,
-					!s.writable && s.status === 'ready' ? h('span', { style: hintStyle }, t('readOnly')) : null,
-					s.failed ? h('span', { style: Object.assign({ fontSize: '12px' }, hintStyle) }, t('saveFailed')) : null,
-				),
+				h(Fields, Object.assign({ idPrefix: 'plugin-config-qwen38' }, props)),
+			);
+		}
+
+		// Dedicated left-nav settings section (Settings → “Qwen3.8 压缩修复”).
+		function Qwen38Section(props) {
+			const t = props.t;
+			return h('div', null,
+				h('h2', null, t('title')),
+				h('p', { style: hintStyle }, t('description')),
+				h('p', { style: commandHintStyle }, t('commandHint')),
+				h(Fields, Object.assign({ idPrefix: 'qwen38-section' }, props)),
 			);
 		}
 
@@ -392,18 +555,30 @@ window.__ModuleLoader__.load({
 		exports.inject = ['slots', 'locale', 'settingsScope'];
 
 		/**
-		 * Register the locale dictionaries and the settings card.
+		 * Register the locale dictionaries and the settings views.
 		 * @param ctx - the browser Cordis context.
 		 */
 		exports.apply = function apply(ctx) {
 			ctx.effect(() => ctx.locale.register(NS, LOCALES), NS + ': client dictionaries');
+			const t = typeof ctx.locale?.bind === 'function' ? ctx.locale.bind(NS) : (key) => String(key);
 			const controller = new Qwen38CardController(ctx.settingsScope.bind({ namespace: NS }));
+			// Existing location: the plugins-tab card (Settings → 插件 → 插件配置).
 			ctx.slots.inject('settings.plugin.item', () => ctx.slots.register({
 				name: 'settings.plugin.item',
 				key: NS,
 				locale: NS,
 				inject: () => controller.inject(),
 			}, Card));
+			// Dedicated left-nav section (Settings → “Qwen3.8 压缩修复”): the same
+			// live scope, plus the scope banner and the /qwen38-compact hint.
+			ctx.slots.inject('settings.section', () => ctx.slots.register({
+				name: 'settings.section',
+				id: 'qwen38-compaction',
+				order: 20,
+				label: () => t('nav'),
+				locale: NS,
+				inject: () => controller.inject(),
+			}, Qwen38Section));
 		};
 
 		return module.exports;

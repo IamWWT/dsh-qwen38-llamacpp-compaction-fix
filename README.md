@@ -115,23 +115,64 @@ dsh-dev plugin --profile web add <克隆路径>/dsh-qwen38-llamacpp-compaction-f
 
 ## 使用与配置
 
-### 网页设置卡片(推荐)
+### 网页设置(推荐)
 
-dsh web 的 **设置 → 插件 → 插件配置** 里有本插件的卡片
-(`Qwen3.8 llama.cpp 压缩修复`),全部字段可视化编辑:
+dsh web 的 **设置** 面板里有两个入口(同一份数据、同一个命名空间
+`qwen38-llamacpp-compaction-fix`,改哪个都一样):
 
-- 常用项:适用模型 ID、上下文窗口(tokens)、压缩/标题调用关闭思考、
-  reasoning_effort 字段值、max_tokens 下限、超大对话分片救援;
-- “高级参数”折叠区:六个采样参数 + 四个分片调优参数。
+1. **左侧导航独立条目「Qwen3.8 压缩修复」**(v0.3.0 起)——专属页面,顶部有
+   作用域提示(本页参数只影响压缩/标题辅助调用,正常对话不受影响)和
+   `/qwen38-compact` 手动压缩命令的用法说明;
+2. **设置 → 插件 → 插件配置** 里的卡片(`Qwen3.8 llama.cpp 压缩修复`)。
+
+界面布局:
+
+- **基础设置**:适用模型 ID;「上下文窗口(tokens)——每个模型一行」(模型列表
+  里每个 id 各有一行,改哪个一目了然);两个拨动开关(带“已启用/已停用”文字,
+  不再是裸复选框):压缩/标题调用关闭思考、超大对话分片救援;reasoning_effort
+  字段值;max_tokens 下限;
+- **高级参数(仅作用于压缩/标题调用)** 折叠区:六个采样参数 + 四个分片调优参数。
 
 编辑后点 **保存** 即写入 `settings.yaml` 并实时生效(无需重启);带“已覆盖默认值”
 徽章的字段点徽章可暂存一个“恢复默认”操作,保存后该键从 settings.yaml 移除、
-回落到插件内置默认。卡片与直接编辑 settings.yaml 等价——同一份数据、同一个
-命名空间 `qwen38-llamacpp-compaction-fix`。
+回落到插件内置默认。
 
 > 前提:插件通过 `dsh plugin add` 安装(见上节)。浏览器半是随包自带的
 > `client.js`(自包含 bundle,无构建步骤);若你的 dsh 版本太老没有
-> `dsh.client` 双半机制,卡片不会出现,但 settings.yaml 配置方式不受影响。
+> `dsh.client` 双半机制,界面不会出现,但 settings.yaml 配置方式不受影响。
+
+#### 手动压缩命令:`/qwen38-compact`
+
+在**任意会话**的输入框输入 `/qwen38-compact` 并回车,立即把该会话的历史压缩成
+摘要检查点(保留最新一条)。这是卡死会话的唯一自救路径:极简模式等没有内置压缩
+引擎的预设不会自动压缩,而预设又不能在会话中途切换——这个命令不依赖任何预设,
+由插件直接复用官方 `dsh-compaction-basic` 的事务实现,超窗历史自动走分片救援。
+
+- 成功:`已压缩 N 条历史(约 X tokens)为摘要检查点。`
+- 失败:事务整体回滚,会话不变,提示原因(模型未产出摘要 / 会话正忙 / 引擎不可用),
+  可重试;
+- `command.enabled: false`(settings.yaml)可关闭该命令。
+
+#### 上下文窗口长度变了怎么办(比如 255k → 123k)
+
+`chunking.contextWindows.<模型ID>` 填的是**该模型的 llama-server 实际运行的 `-c`**,
+只影响“何时触发分片”(单次调用输入预算 = 窗口 × chunkRatio):
+
+| 场景 | 操作 |
+|---|---|
+| Unsloth Studio 重启了 llama-server,`-c` 变了 | 把对应模型那一行改成新值(设置页或 settings.yaml) |
+| 换了 GGUF 但 `-c` 没变 | 不用改 |
+| 新增一个模型 ID | `models` 加 id + 给它配一行窗口 |
+
+查证实际值:
+
+```bash
+curl -s http://127.0.0.1:<llama-server端口>/v1/models \
+  | python3 -c "import json,sys; [print(m['id'], m.get('context_length')) for m in json.load(sys.stdin)['data']]"
+```
+
+设错都安全:设小了 → 该单次完成的压缩被多切几片(慢一点);设大了 → 可能单次
+溢出,fail-open 回退并告警,不会损坏会话。
 
 ### 手改 settings.yaml(等价方式)
 
@@ -192,11 +233,12 @@ qwen38-llamacpp-compaction-fix:
 两个已踩过的坑:
 
 1. **极简模式(minimal preset)不含压缩引擎**(standard 才有 `compaction-basic`)。
-   minimal 会话溢出时不会自动压缩,每轮直接报 `CONTEXT_WINDOW_EXCEEDED` 卡死。
-   解法:在会话输入框的预设选择器里把该会话从“极简模式”切到**标准模式**,再发任意
-   消息——压力检查会先触发一次完整压缩(本插件保证这次调用关思考、带采样参数、
-   超窗时自动分片),压缩完成后对话回到窗口内,即可继续。本地 27B 上首次压缩
-   可能要十几分钟到半小时,属正常。
+   minimal 会话溢出时不会自动压缩,每轮直接报 `CONTEXT_WINDOW_EXCEEDED` 卡死;
+   而且预设选择器只对**新会话**生效,现有会话中途切不了预设。解法:在该会话输入框
+   执行 **`/qwen38-compact`**(见上节)——插件自带的手动压缩命令,不依赖任何预设,
+   超窗历史自动分片。实测:一个 262519 tokens(超出 262144 窗口)的卡死会话,
+   一条命令后上下文占用回落到 8%,会话立即恢复可用。本地 27B 上首次压缩可能要
+   十几分钟到半小时,属正常;失败会整体回滚,可重试。
 2. **给模型打 effort 戳的前提是模型声明了 reasoning 能力**。pi-ai 对“未声明
    reasoning 的模型 + 任意 `reasoningEffort`(包括 `off`)”直接抛
    `UNSUPPORTED_REASONING_EFFORT`——任何想给压缩调用关思考的上游组件(本插件的

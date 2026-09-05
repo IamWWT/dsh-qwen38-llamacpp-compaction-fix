@@ -158,17 +158,25 @@ assert.equal(localeRegisters[0].ns, 'qwen38-llamacpp-compaction-fix')
 for (const lang of ['zh', 'en']) {
   const dict = localeRegisters[0].dict[lang]
   assert.ok(dict && typeof dict.title === 'string' && dict.title.length > 0, `locale ${lang} has title`)
-  for (const key of ['modelsLabel', 'contextWindowLabel', 'enableThinkingOffLabel', 'wireReasoningLabel', 'maxTokensFloorLabel', 'rescueLabel', 'advancedTitle', 'save', 'discard', 'overridden', 'reset', 'invalidNumber', 'saveFailed']) {
+  for (const key of ['nav', 'scopeNote', 'commandHint', 'modelsLabel', 'windowsTitle', 'windowsHint', 'basicTitle', 'enableThinkingOffLabel', 'wireReasoningLabel', 'maxTokensFloorLabel', 'rescueLabel', 'advancedTitle', 'on', 'off', 'save', 'discard', 'overridden', 'reset', 'invalidNumber', 'saveFailed']) {
     assert.ok(typeof dict[key] === 'string' && dict[key].length > 0, `locale ${lang} has ${key}`)
   }
 }
 
-assert.equal(slotEntries.length, 1, 'one card registered')
-const entry = slotEntries[0]
-assert.equal(entry.options.name, 'settings.plugin.item')
+assert.equal(slotEntries.length, 2, 'card + dedicated section registered')
+const entry = slotEntries.find((e) => e.options.name === 'settings.plugin.item')
+assert.ok(entry, 'plugins-tab card entry present')
 assert.equal(entry.options.key, 'qwen38-llamacpp-compaction-fix')
 assert.equal(entry.options.locale, 'qwen38-llamacpp-compaction-fix')
 assert.equal(typeof entry.component, 'function')
+const sectionEntry = slotEntries.find((e) => e.options.name === 'settings.section')
+assert.ok(sectionEntry, 'dedicated settings.section entry present')
+assert.equal(sectionEntry.options.id, 'qwen38-compaction')
+assert.equal(sectionEntry.options.locale, 'qwen38-llamacpp-compaction-fix')
+assert.equal(typeof sectionEntry.options.order, 'number')
+assert.equal(typeof sectionEntry.component, 'function')
+// The nav label resolves through the bound locale (fake bind returns the key).
+assert.equal(sectionEntry.options.label(), 'nav')
 
 const face = entry.options.inject()
 assert.ok(face.hooks.qwen38Card, 'face exposes the card store hook')
@@ -187,6 +195,15 @@ assert.match(html, /262144/, 'context window renders')
 assert.match(html, /20000/, 'user-overridden maxTokensFloor renders (not the base 16384)')
 assert.match(html, /已覆盖默认值/, 'override badge on the overridden field')
 assert.ok(!/maxTokensFloor" value="16384"/.test(html), 'base value hidden where user override exists')
+assert.match(html, /作用域/, 'card carries the scope banner')
+
+// The dedicated section renders the same live values plus the scope banner
+// and the /qwen38-compact usage hint.
+let sectionHtml = render(sectionEntry.component(props))
+assert.match(sectionHtml, /Qwen3\.8 llama\.cpp 压缩修复/, 'section title renders')
+assert.match(sectionHtml, /作用域/, 'section carries the scope banner')
+assert.match(sectionHtml, /\/qwen38-compact/, 'section shows the manual command hint')
+assert.match(sectionHtml, /20000/, 'section reads the same live scope (user override)')
 
 // ---------------------------------------------------------------------------
 // Edit + save: staged text becomes a set op with the nested path.
@@ -253,8 +270,18 @@ assert.deepEqual(lastOps, [
 ], 'checkbox writes a boolean; blank text unsets the field')
 
 // ---------------------------------------------------------------------------
-// Context-window path follows the first model id.
+// Per-model context windows: edit + reset, and the models list change.
 // ---------------------------------------------------------------------------
+face.editWindow('Qwen3.8-27B-GGUF', '123000')
+await face.save()
+assert.deepEqual(norm(mutateCalls.at(-1).ops), [
+  { op: 'set', path: ['chunking', 'contextWindows', 'Qwen3.8-27B-GGUF'], value: 123000 },
+], 'window edit targets the per-model contextWindows path')
+face.resetWindow('Qwen3.8-27B-GGUF')
+await face.save()
+assert.deepEqual(norm(mutateCalls.at(-1).ops), [
+  { op: 'unset', path: ['chunking', 'contextWindows', 'Qwen3.8-27B-GGUF'] },
+], 'window reset emits an unset op')
 face.edit('models', 'NewModel-42, Other')
 await face.save()
 const modelOps = norm(mutateCalls.at(-1).ops)

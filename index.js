@@ -284,6 +284,18 @@ const ChunkingConfig = z.object({
   maxChunks: z.number().default(DEFAULT_MAX_CHUNKS)
 });
 
+/**
+ * Manual compaction command config (feature 3). The `/qwen38-compact` slash
+ * command runs the official dsh-compaction-basic manual transaction on the
+ * receiving session — including sessions whose agent preset ships no
+ * compaction engine at all (e.g. the minimal preset), where neither automatic
+ * compaction nor the built-in `/compact` exist.
+ */
+const CommandConfig = z.object({
+  /** Master switch for the `/qwen38-compact` command. Default `true`. */
+  enabled: z.boolean().default(true)
+});
+
 /** Plugin config (all keys optional; defaults applied by the schema). */
 const Config = z.object({
   /** Reasoning effort stamped onto matched calls. `""` disables the effort policy. Default `"off"`. */
@@ -323,7 +335,9 @@ const Config = z.object({
    */
   enableThinkingOff: z.boolean().default(true),
   /** Oversized-compaction rescue policy (feature 2); see ChunkingConfig. */
-  chunking: ChunkingConfig.default({})
+  chunking: ChunkingConfig.default({}),
+  /** Manual `/qwen38-compact` command; see CommandConfig. */
+  command: CommandConfig.default({})
 });
 
 /** Settings namespace carrying this plugin's policy (plain string; both dsh-settings generations validate the same kebab-case pattern). */
@@ -533,6 +547,18 @@ export function rewriteCompactionBody(init, policy) {
       }
     }
   }
+  // Strip tool schemas: the summarization prompt is self-contained text, and
+  // Qwen3 on llama.cpp answers a tools-bearing thinking-off request with a
+  // TOOL CALL (empty content) instead of the Markdown checkpoint — which dsh
+  // then rejects as "no text summary content". Measured on build 10798:
+  // tools + thinking off → finish_reason tool_calls, content ""; the same
+  // body without tools → a proper checkpoint. (The engine keeps the tools in
+  // the prompt only for KV-cache prefix affinity; correctness wins.)
+  if ("tools" in body || "tool_choice" in body) {
+    delete body.tools;
+    delete body.tool_choice;
+    changed = true;
+  }
   if (!changed) return false;
   init.body = JSON.stringify(body);
   return true;
@@ -584,7 +610,14 @@ export function rewriteTitleBody(init, policy) {
     if (messageText(message.content).startsWith(TITLE_SIGNATURE)) { matched = true; break; }
   }
   if (!matched) return false;
-  const changed = applyThinkingOff(body, policy);
+  let changed = applyThinkingOff(body, policy);
+  // Same tool-call trap as the compaction call: a thinking-off request that
+  // carries tool schemas can come back as a tool call with no title text.
+  if ("tools" in body || "tool_choice" in body) {
+    delete body.tools;
+    delete body.tool_choice;
+    changed = true;
+  }
   if (!changed) return false;
   init.body = JSON.stringify(body);
   return true;
@@ -1129,6 +1162,124 @@ function chooseEffort(configured, offeredIds) {
   return undefined;
 }
 
+// ---------------------------------------------------------------------------
+// Feature 3 — manual compaction command (/qwen38-compact)
+// ---------------------------------------------------------------------------
+
+/** Command name users type in the composer. */
+const MANUAL_COMPACT_COMMAND = "qwen38-compact";
+
+/**
+ * Resolve (building on first use) the dsh-compaction-basic engine class.
+ * The import is dynamic and fail-soft: when the package cannot be resolved
+ * from this deployment the command reports that instead of crashing plugin
+ * load. Cached per process; the class is stateless, instances are not.
+ * @returns a promise for `{ Engine }` or `{ error }`.
+ */
+let engineClassPromise = null;
+function manualEngineClass() {
+  if (engineClassPromise === null) {
+    engineClassPromise = (async () => {
+      let mod;
+      try {
+        mod = await import("@deepseek-ai/dsh-compaction-basic");
+      } catch (error) {
+        return { error: `dsh-compaction-basic is not resolvable from this deployment (${error?.message ?? error})` };
+      }
+      const Engine = mod.BasicCompactionEngine ?? mod.default;
+      if (typeof Engine !== "function") {
+        return { error: "dsh-compaction-basic did not export a BasicCompactionEngine class" };
+      }
+      return { Engine };
+    })();
+  }
+  return engineClassPromise;
+}
+
+/** Friendly text for the known ManualCompactionError codes (duck-typed). */
+function manualCompactFailureText(error) {
+  const code = error && typeof error === "object" && typeof error.code === "string" ? error.code : "";
+  switch (code) {
+    case "busy": return "Agent 正忙(有进行中的轮次或排队任务),等它空闲后再试。";
+    case "cancelled": return "压缩已取消,会话未改动。";
+    case "changed": return "待压缩的历史在摘要完成前发生了变化,本次未生效;会话未改动,可重试。";
+    case "summary": return "模型没有产出可用的摘要,本次未生效;会话未改动,可重试。";
+    case "commit": return "压缩未能干净收尾,部分历史可能已变化;请检查会话状态后再试。";
+    case "persistence": return "压缩完成但会话保存失败;请检查存储后重试。";
+    default: return undefined;
+  }
+}
+
+/**
+ * Register the global `/qwen38-compact` command. The engine and the command
+ * live inside an injected child context that declares exactly the services
+ * the manual transaction needs (`commands`, `tokenMeter`, `sessions`; `llm`
+ * is inherited from this plugin's own inject list). Global (not agent-scoped)
+ * registration makes the command visible to every session — including
+ * minimal-preset sessions, whose agents mount no command plugins at all.
+ *
+ * When any of the required services is absent from the deployment, cordis
+ * never runs the callback: the plugin loads fine and simply has no command.
+ * @param ctx - this plugin's context (must expose `inject`).
+ */
+function registerManualCompactCommand(ctx) {
+  if (typeof ctx?.inject !== "function") return;
+  try {
+    ctx.inject(["commands", "tokenMeter", "sessions"], function qwen38ManualCompact(sctx) {
+      const boot = (async () => {
+        const resolved = await manualEngineClass();
+        if (resolved.error !== undefined) return { error: resolved.error };
+        try {
+          // `auto: false` — the engine registers NO automatic hooks (no
+          // pre-step pressure checks, no overflow-retry listeners); it exists
+          // purely to execute manual transactions. Its summarization call goes
+          // through `ctx.llm.stream({ purpose: "compaction" })`, so this
+          // plugin's wire layers (thinking-off, sampling, max_tokens floor) and
+          // the oversized-compaction chunked rescue apply exactly as they do
+          // to the built-in engine.
+          return { engine: new resolved.Engine(sctx, { auto: false }) };
+        } catch (error) {
+          return { error: `manual compaction engine construction failed (${error?.message ?? error})` };
+        }
+      })();
+      try {
+        sctx.effect(function* () {
+          yield sctx.commands.register({
+            name: MANUAL_COMPACT_COMMAND,
+            description: "手动把当前会话历史压缩成摘要检查点(极简模式等无内置压缩引擎的会话也可用;超窗输入自动分片)",
+            handler: async (invocation) => {
+              const ready = await boot;
+              if (ready.error !== undefined) {
+                return { kind: "error", text: `无法执行手动压缩:${ready.error}` };
+              }
+              try {
+                const result = await ready.engine.compactNow(invocation.agent, invocation.signal, invocation.commandId);
+                if (result === null) {
+                  return { kind: "success", text: "当前会话还没有可压缩的历史。" };
+                }
+                return {
+                  kind: "success",
+                  text: `已压缩 ${result.shadowedSeqs.length} 条历史(约 ${result.shadowedTokenCount} tokens)为摘要检查点。`,
+                  sourceEventSeq: result.summarySeq
+                };
+              } catch (error) {
+                if (invocation.signal?.aborted === true) return { kind: "error", text: "压缩已取消,会话未改动。" };
+                const friendly = manualCompactFailureText(error);
+                if (friendly !== undefined) return { kind: "error", text: friendly };
+                throw error;
+              }
+            }
+          });
+        }, `${name}: manual compaction command`);
+      } catch {
+        /* duplicate registration (in-process re-apply): keep the first */
+      }
+    });
+  } catch {
+    /* inject unavailable or services missing: no command, plugin still loads */
+  }
+}
+
 /**
  * Install the compaction policy on the `llm/stream` waterfall.
  * @param ctx - plugin context owning the listener and the settings wiring.
@@ -1234,6 +1385,12 @@ function apply(ctx, config = {}) {
       yield* next();
     })();
   });
+  // Feature 3: the manual compaction command. Gated by config (live-reloaded:
+  // a settings.yaml edit re-runs apply; duplicate registration is a no-op).
+  const commandEnabled = resolved.command === null || typeof resolved.command !== "object"
+    ? true
+    : resolved.command.enabled !== false;
+  if (commandEnabled) registerManualCompactCommand(ctx);
 }
 
-export { name, inject, Config, COMPACT_EFFORT_SETTINGS_NAMESPACE, apply };
+export { name, inject, Config, COMPACT_EFFORT_SETTINGS_NAMESPACE, apply, MANUAL_COMPACT_COMMAND };

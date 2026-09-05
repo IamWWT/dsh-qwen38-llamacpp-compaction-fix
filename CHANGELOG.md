@@ -1,5 +1,63 @@
 # Changelog
 
+## 0.3.0 (2026-09-05)
+
+### Added
+
+- **`/qwen38-compact` manual compaction command**: type it in any session's
+  composer to compact that session's history into a summary checkpoint right
+  now. This is the unstick path for conversations over the model's context
+  window in presets without a built-in compaction engine (e.g. minimal),
+  where no automatic compaction ever fires and the preset selector only
+  applies to new sessions. The command reuses the official
+  `dsh-compaction-basic` transaction (`BasicCompactionEngine` with
+  `auto: false`, so no pressure hooks are registered) — its summarization
+  call flows through `llm/stream {purpose:'compaction'}` and therefore gets
+  every wire-layer treatment (thinking off, sampling params, max_tokens
+  floor, tools strip) plus the chunked map-reduce rescue for oversized
+  prompts. Registered as a global command via
+  `ctx.inject(['commands','tokenMeter','sessions'])`, so it is visible in
+  every session regardless of preset; friendly failure text on busy /
+  missing-engine / no-summary outcomes, transaction rolls back untouched.
+  Disable with `command.enabled: false`.
+- **Dedicated settings section**: the plugin now registers its own left-nav
+  row (Settings → “Qwen3.8 压缩修复”, order 20) in addition to the
+  plugins-tab card — same live scope, plus a scope banner (“all parameters
+  apply only to compaction/title auxiliary calls; normal conversation is
+  untouched”) and the `/qwen38-compact` usage hint.
+- **UI redesign** (client.js): boolean fields are now labeled on/off pill
+  switches with explicit “已启用/已停用” state text (no more mystery
+  checkboxes); per-model context-window rows (one row per id in `models`,
+  so a changed `-c` is unambiguous which model it belongs to); consistent
+  label-column alignment and grouped sections (基础设置 / 高级参数).
+- README: “上下文窗口长度变了怎么办” guide (when/what to change, how to
+  verify the live n_ctx via `GET /v1/models`, safe-fail semantics),
+  `/qwen38-compact` usage section, and a corrected stuck-session recipe
+  (preset switching does NOT work mid-session — use the command).
+
+### Fixed
+
+- **Compaction summarization produced no text on Qwen3.8 / llama.cpp build
+  10798**: dsh's compaction prompt includes the conversation's `tools`
+  schemas (KV-cache prefix affinity). With tools present AND thinking off,
+  this model answers with an empty-content tool call instead of a summary —
+  measured: tools+thinking-off → empty; tools+thinking-on → works;
+  no-tools+thinking-off → works. Both `rewriteCompactionBody` and
+  `rewriteTitleBody` now strip `tools`/`tool_choice` from matched bodies.
+  (The summarization prompt itself never references tool names, so nothing
+  is lost.)
+
+### Verified end-to-end
+
+- Sandbox minimal-preset session: `/qwen38-compact` recognized as a command,
+  compacted 7 history items (~3047 tokens) into a checkpoint; the model then
+  answered a follow-up question that only makes sense with the pre-compaction
+  context (checkpoint survived).
+- Real instance (the user's dsh web, port 3082): the stuck veinmap session at
+  **262519 tokens > 262144 window** compacted via one command — 130 nodes
+  (~49.5K tokens) → a 10.1K-character Chinese checkpoint, context usage back
+  to 8%, conversation resumed immediately.
+
 ## 0.2.0 (2026-09-05)
 
 ### Added

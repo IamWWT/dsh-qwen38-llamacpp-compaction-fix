@@ -113,6 +113,24 @@ console.log("compaction gate:");
   const samplingOnly = compactionInit("Qwen3.8-27B-GGUF");
   check("sampling/floor still apply when thinking-off gates are off", [rewriteCompactionBody(samplingOnly, onlySampling), JSON.parse(samplingOnly.body).temperature, JSON.parse(samplingOnly.body).max_tokens, "chat_template_kwargs" in JSON.parse(samplingOnly.body)], [true, 0.7, 16384, false]);
 }
+console.log("tool stripping (Qwen3 + llama.cpp tool-call trap):");
+{
+  // A compaction body carrying the conversation's tool schemas must come back
+  // WITHOUT tools: with tools present and thinking off, Qwen3 on llama.cpp
+  // answers a tool call (empty content) instead of the text checkpoint.
+  const init = compactionInit("Qwen3.8-27B-GGUF");
+  const body = JSON.parse(init.body);
+  body.tools = [{ type: "function", function: { name: "bash" } }];
+  body.tool_choice = "auto";
+  init.body = JSON.stringify(body);
+  check("compaction: rewrite strips tools + tool_choice", [rewriteCompactionBody(init, POLICY), JSON.parse(init.body).tools, JSON.parse(init.body).tool_choice], [true, undefined, undefined]);
+  // Title bodies get the same treatment.
+  const tinit = titleInit("Qwen3.8-27B-GGUF");
+  const tbody = JSON.parse(tinit.body);
+  tbody.tools = [{ type: "function", function: { name: "bash" } }];
+  tinit.body = JSON.stringify(tbody);
+  check("title: rewrite strips tools", [rewriteTitleBody(tinit, POLICY), JSON.parse(tinit.body).tools], [true, undefined]);
+}
 
 console.log("title gate:");
 {
@@ -236,6 +254,70 @@ console.log("settings wiring:");
   const gen = listeners["llm/stream"](options, () => { nextCalled++; return (async function* () { yield "x"; })(); });
   for await (const _ of gen) {}
   check("no settings service: waterfall still runs on entry defaults", nextCalled === 1 && options.reasoningEffort === undefined, true);
+}
+
+console.log("manual compaction command:");
+{
+  // A ctx that provides the commands service: the global /qwen38-compact
+  // registration must land inside an injected child context.
+  let registered = null;
+  const injectCalls = [];
+  // Drive generator effects to completion (the real runtime unwinds them on
+  // teardown; the test just needs the body to run).
+  const runEffect = (fn) => {
+    if (typeof fn !== "function") return () => {};
+    const result = fn();
+    if (result && typeof result.next === "function") {
+      let step = result.next();
+      while (!step.done) step = result.next();
+    }
+    return () => {};
+  };
+  const ctxCmd = {
+    logger: { info() {}, warn() {}, error() {} },
+    on() {},
+    llm: { resolveModelInfo: async () => ({}) },
+    effect: runEffect,
+    inject: (deps, cb) => {
+      injectCalls.push([...deps]);
+      if (deps.includes("commands")) cb({
+        commands: { register: (def) => { registered = def; return () => {}; } },
+        effect: runEffect
+      });
+    }
+  };
+  apply(ctxCmd, {});
+  check("command: inject declares the required services", injectCalls.some((d) => d.includes("commands") && d.includes("tokenMeter") && d.includes("sessions")), true);
+  check("command: registered under the fixed name", registered?.name, "qwen38-compact");
+  check("command: handler is async", typeof registered?.handler, "function");
+  // Handler against an unavailable engine (import failure) reports cleanly.
+  const inv = { agent: {}, signal: new AbortController().signal, commandId: "c1" };
+  const out = await registered.handler(inv);
+  check("command: missing engine yields a friendly error (no throw)", typeof out?.text === "string" && out.text.length > 0, true);
+}
+{
+  // command.enabled: false must suppress the registration entirely.
+  let registered = null;
+  const runEffectOff = (fn) => {
+    if (typeof fn !== "function") return () => {};
+    const result = fn();
+    if (result && typeof result.next === "function") {
+      let step = result.next();
+      while (!step.done) step = result.next();
+    }
+    return () => {};
+  };
+  const ctxOff = {
+    logger: { info() {}, warn() {}, error() {} },
+    on() {},
+    llm: { resolveModelInfo: async () => ({}) },
+    effect: runEffectOff,
+    inject: (deps, cb) => {
+      if (deps.includes("commands")) cb({ commands: { register: (def) => { registered = def; return () => {}; } }, effect: runEffectOff });
+    }
+  };
+  apply(ctxOff, { command: { enabled: false } });
+  check("command: disabled via config", registered, null);
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
