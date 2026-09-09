@@ -1,5 +1,5 @@
 /**
- * dsh-qwen38-llamacpp-compaction-fix — browser half (self-contained client bundle).
+ * dsh-qwen38-gateway-compaction-fix — browser half (self-contained client bundle).
  *
  * Hand-written on purpose: the dsh web shell serves this file verbatim into the
  * page module table (package.json `dsh.client` + `./client` export), so it must
@@ -10,10 +10,10 @@
  * What it renders:
  *   - a dedicated left-nav settings section (Settings → “Qwen3.8 压缩修复”);
  *   - the same card inside Settings → Plugins → Plugin configuration.
- * Both views edit the one `qwen38-llamacpp-compaction-fix` settings namespace.
+ * Both views edit the one `qwen38-gateway-compaction-fix` settings namespace.
  */
 window.__ModuleLoader__.load({
-	id: 'dsh-qwen38-llamacpp-compaction-fix',
+	id: 'dsh-qwen38-gateway-compaction-fix',
 	factory: (require) => {
 		var module = { exports: {} };
 		var exports = module.exports;
@@ -24,28 +24,28 @@ window.__ModuleLoader__.load({
 		const { createSnapshotStore } = require('@deepseek-ai/dsh-client-store');
 
 		/** Settings namespace this card edits (must match the Host half). */
-		const NS = 'qwen38-llamacpp-compaction-fix';
+		const NS = 'qwen38-gateway-compaction-fix';
 
 		// ------------------------------------------------------------------
 		// Locale dictionaries (flat key -> string, zh primary / en fallback).
 		// ------------------------------------------------------------------
 		const LOCALES = {
 			zh: {
-				title: 'Qwen3.8 llama.cpp 压缩修复',
+				title: 'Qwen3.8 网关压缩修复',
 				nav: 'Qwen3.8 压缩修复',
-				description: '让本地 llama.cpp(Qwen3.8)上的会话压缩可靠完成:辅助调用关闭思考、使用非思考模式推荐采样参数;超大对话自动分片压缩。保存后实时生效,无需重启。',
-				scopeNote: '作用域:本页全部参数只作用于「压缩摘要」与「会话标题」两类辅助调用。正常对话完全不受影响,仍使用你 llama.cpp 服务端的参数(temp、top_p、惩罚项、思考模式等)。',
+				description: '让本地网关(llama.cpp 与 NInfer)上的 Qwen3.8 会话压缩可靠完成:辅助调用按引擎写入对应的关思考字段(llama.cpp: chat_template_kwargs.enable_thinking;NInfer: reasoning_effort),并用非思考模式推荐采样参数;超大对话自动分片压缩。保存后实时生效,无需重启。',
+				scopeNote: '作用域:本页全部参数只作用于「压缩摘要」与「会话标题」两类辅助调用。正常对话完全不受影响,仍使用你网关(llama.cpp/NInfer)的默认参数。NInfer 模型请把模型 id 同时填入 ninModels(设置页不展示该项,见 settings.yaml),否则会对 NInfer 网关误发 chat_template_kwargs 导致 400。',
 				commandHint: '手动操作:在任意会话输入框输入 /qwen38-compact(模型总结,保信息,大会话走分片)或 /qwen38-new-context(硬重置:不调模型、秒级完成、历史丢弃)。极简模式等无内置压缩引擎的会话也可用。',
 				basicTitle: '基础设置',
 				advancedTitle: '高级参数(仅作用于压缩/标题调用)',
 				modelsLabel: '适用模型 ID',
 				modelsHint: '逗号分隔,须与 settings.yaml 中 llm-pi-ai providers 声明的模型 id 完全一致;留空则整个策略停用。',
 				windowsTitle: '上下文窗口(tokens)——每个模型一行',
-				windowsHint: '该模型 llama-server 实际运行的 -c(Unsloth Studio 改过 -c 或换 GGUF 后,用 curl /v1/models 查 context_length 并同步到这里)。只影响“何时分片”:设小=更早分片(慢一点),设大=可能单次溢出(安全回退)。',
+				windowsHint: '该模型网关实际运行的上下文窗口(llama.cpp: -c,可用 curl /v1/models 查 context_length;NInfer: n_ctx)。只影响“何时分片”:设小=更早分片(慢一点),设大=可能单次溢出(安全回退)。',
 				enableThinkingOffLabel: '压缩/标题调用关闭思考',
-				enableThinkingOffHint: '开启:向匹配的辅助请求写入 chat_template_kwargs.enable_thinking=false(Qwen3 在 llama.cpp 上的主开关)。正常对话不受影响。',
+				enableThinkingOffHint: '开启:向匹配的辅助请求写入 chat_template_kwargs.enable_thinking=false(Qwen3 在 llama.cpp 上的主开关;对 NInfer 模型自动跳过——NInfer 不认该字段,只走 reasoning_effort)。正常对话不受影响。',
 				wireReasoningLabel: 'reasoning_effort 字段值',
-				wireReasoningHint: '双保险:同时写入请求体的 reasoning_effort(llama.cpp 接受 none/low/medium/high);留空表示不写该字段。',
+				wireReasoningHint: '双保险:同时写入请求体的 reasoning_effort(llama.cpp 与 NInfer 均接受,如 none);留空表示不写该字段。',
 				maxTokensFloorLabel: 'max_tokens 下限',
 				maxTokensFloorHint: '辅助调用的 max_tokens 至少抬到该值(只升不降),防止客户端上下文钳制吃掉输出预算;0 停用。',
 				rescueLabel: '超大对话分片救援',
@@ -91,19 +91,19 @@ window.__ModuleLoader__.load({
 				tipNewContext: '独立项(不依赖其他项)。语义与 /qwen38-compact 不同:本命令不调用模型、不做摘要——直接把模型可见历史丢弃并写入新窗口标记,秒级完成、零 token 成本。适合任务状态都在文件/git 里的场景;纯问答会话(状态不在环境里)建议用 /qwen38-compact。',
 			},
 			en: {
-				title: 'Qwen3.8 llama.cpp compaction fix',
+				title: 'Qwen3.8 gateway compaction fix',
 				nav: 'Qwen3.8 compaction fix',
-				description: 'Makes session compaction reliable on local llama.cpp (Qwen3.8): thinking off + non-thinking sampling for auxiliary calls; oversized conversations compact in chunks. Changes apply live, no restart.',
-				scopeNote: 'Scope: every parameter on this page applies ONLY to auxiliary calls — compaction summaries and session titles. Normal conversation is untouched and keeps your llama.cpp server parameters (temp, top_p, penalties, thinking mode).',
+				description: 'Makes session compaction reliable on local Qwen3.8 gateways (llama.cpp AND NInfer): engine-appropriate thinking-off wire fields + non-thinking sampling for auxiliary calls; oversized conversations compact in chunks. Changes apply live, no restart.',
+				scopeNote: 'Scope: every parameter on this page applies ONLY to auxiliary calls — compaction summaries and session titles. Normal conversation is untouched and keeps your gateway defaults (llama.cpp/NInfer).',
 				commandHint: 'Manual operations: type /qwen38-compact (model-summarized, keeps information, chunked when oversized) or /qwen38-new-context (hard reset: no LLM call, instant, history discarded) in any session composer. Works even in presets without a built-in compaction engine.',
 				basicTitle: 'Basics',
 				advancedTitle: 'Advanced (auxiliary calls only)',
 				modelsLabel: 'Model ids',
 				modelsHint: 'Comma-separated; must exactly match the model ids declared under llm-pi-ai providers in settings.yaml. Empty disables the whole policy.',
 				windowsTitle: 'Context window (tokens) — one row per model',
-				windowsHint: 'The llama-server -c actually running for that model (after changing -c or the GGUF in Unsloth Studio, check context_length via curl /v1/models and sync it here). Only affects WHEN chunking kicks in: smaller = earlier chunking (slower), larger = possible single-call overflow (safe fallback).',
+				windowsHint: 'The context window the gateway actually runs for that model (llama.cpp: -c, checkable via curl /v1/models; NInfer: its n_ctx). Only affects WHEN chunking kicks in: smaller = earlier chunking (slower), larger = possible single-call overflow (safe fallback).',
 				enableThinkingOffLabel: 'Disable thinking on compaction/title calls',
-				enableThinkingOffHint: 'On: writes chat_template_kwargs.enable_thinking=false into matched auxiliary requests (the primary Qwen3 switch on llama.cpp). Normal conversation is unaffected.',
+				enableThinkingOffHint: 'On: writes chat_template_kwargs.enable_thinking=false into matched auxiliary requests (the primary Qwen3 switch on llama.cpp; skipped automatically for NInfer models, which only get reasoning_effort). Normal conversation is unaffected.',
 				wireReasoningLabel: 'reasoning_effort field value',
 				wireReasoningHint: 'Belt-and-braces: also written into the request body (llama.cpp accepts none/low/medium/high); blank omits the field.',
 				maxTokensFloorLabel: 'max_tokens floor',

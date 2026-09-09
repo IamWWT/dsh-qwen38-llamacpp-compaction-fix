@@ -1,7 +1,7 @@
 {
-  "name": "dsh-qwen38-llamacpp-compaction-fix",
-  "version": "0.5.0",
-  "description": "DSH plugin (llama.cpp gateways, e.g. Unsloth Studio): local qwen3.8-27b compaction fix — thinking off for compaction-only calls with the model's non-thinking sampling parameters and a max_tokens floor; plus a chunked map-reduce rescue when the conversation is larger than the target model's context window (the 1M->250k model-switch 'cannot compact' case)",
+  "name": "dsh-qwen38-gateway-compaction-fix",
+  "version": "1.0.0",
+  "description": "DSH plugin (local Qwen3.8 gateways: llama.cpp/Unsloth Studio AND NInfer): thinking off for compaction-only calls via engine-appropriate wire fields (llama.cpp: chat_template_kwargs.enable_thinking; NInfer: reasoning_effort), non-thinking sampling parameters and a max_tokens floor; plus a chunked map-reduce rescue when the conversation is larger than the target model's context window (the 1M->250k model-switch 'cannot compact' case)",
   "keywords": [
     "dsh",
     "dsh-plugin",
@@ -9,6 +9,7 @@
     "qwen",
     "qwen3.8",
     "llama.cpp",
+    "ninfer",
     "unsloth",
     "compaction",
     "reasoning-effort",
@@ -16,10 +17,10 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/IamWWT/dsh-qwen38-llamacpp-compaction-fix.git"
+    "url": "git+https://github.com/IamWWT/dsh-qwen38-gateway-compaction-fix.git"
   },
-  "homepage": "https://github.com/IamWWT/dsh-qwen38-llamacpp-compaction-fix#readme",
-  "bugs": "https://github.com/IamWWT/dsh-qwen38-llamacpp-compaction-fix/issues",
+  "homepage": "https://github.com/IamWWT/dsh-qwen38-gateway-compaction-fix#readme",
+  "bugs": "https://github.com/IamWWT/dsh-qwen38-gateway-compaction-fix/issues",
   "license": "MIT",
   "type": "module",
   "main": "./index.js",

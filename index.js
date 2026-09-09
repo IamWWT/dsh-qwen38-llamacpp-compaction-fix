@@ -1,5 +1,5 @@
 /**
- * qwen3.8-27b (llama.cpp gateway, e.g. Unsloth Studio) compaction thinking fix:
+ * qwen3.8-27b local-gateway (llama.cpp AND NInfer) compaction thinking fix:
  * auxiliary LLM calls (compaction summarization AND session-title generation)
  * run with thinking OFF and a `max_tokens` floor — but ONLY for the models in
  * the `models` allow-list (`Qwen3.8-27B-GGUF` by default). Every other model
@@ -9,6 +9,15 @@
  * 250k-context local model" case), the single-shot summarization call cannot
  * fit and dsh reports it as un-compactable; this plugin rescues exactly that
  * case with a chunked map-reduce summarization at the wire level.
+ *
+ * Supported gateways (the wire fields differ per engine):
+ *   - llama.cpp (e.g. Unsloth Studio): `chat_template_kwargs.enable_thinking`
+ *     + `reasoning_effort` + sampling + `max_tokens` floor.
+ *   - NInfer (`ninfer-serve`): `reasoning_effort` + sampling + `max_tokens`
+ *     floor. NInfer rejects `chat_template_kwargs` with a 400
+ *     (`chat_template_option_not_supported`), so models served by NInfer must
+ *     be listed in `ninModels`; the llama.cpp-specific merge is skipped for
+ *     them automatically.
  *
  * Why feature 1 exists: local qwen3.8-27b deployments served by llama.cpp (here
  * via Unsloth Studio's OpenAI-compatible endpoint) think at their default
@@ -153,7 +162,7 @@
  *
  * Configuration precedence (re-projected on every LLM call, so settings.yaml
  * edits apply without a restart):
- *   1. `qwen38-llamacpp-compaction-fix:` section of `$DSH_HOME/settings.yaml`
+ *   1. `qwen38-gateway-compaction-fix:` section of `$DSH_HOME/settings.yaml`
  *   2. the `config:` block of this plugin's row in the profile's
  *      `cordis.patch.yml`
  *   3. built-in defaults (effort `"off"`, purposes `["compaction"]`,
@@ -174,7 +183,7 @@ import z from "@deepseek-ai/schemastery";
 const settingsApi = await import("@deepseek-ai/dsh-settings").catch(() => null);
 
 /** Cordis plugin name used by loader diagnostics. */
-const name = "qwen38-llamacpp-compaction-fix";
+const name = "qwen38-gateway-compaction-fix";
 /** Hard dependency: the LLM service owns the `llm/stream` waterfall. */
 const inject = ["llm"];
 
@@ -318,6 +327,15 @@ const Config = z.object({
    * Default `["Qwen3.8-27B-GGUF"]`.
    */
   models: z.array(z.string()).default(DEFAULT_MODELS),
+  /**
+   * Exact model ids served by an **NInfer** gateway (case-sensitive, as
+   * declared in settings.yaml). For these models the llama.cpp-specific
+   * `chat_template_kwargs.enable_thinking` merge is skipped (NInfer rejects
+   * the field with a 400); thinking is switched off via `reasoning_effort`
+   * only. Models in `models` but not here are treated as llama.cpp.
+   * Default `[]`.
+   */
+  ninModels: z.array(z.string()).default([]),
   /** Sampling settings applied to compaction request bodies; `{}` leaves sampling untouched. */
   sampling: SamplingParams.default({}),
   /**
@@ -350,7 +368,7 @@ const Config = z.object({
 });
 
 /** Settings namespace carrying this plugin's policy (plain string; both dsh-settings generations validate the same kebab-case pattern). */
-const COMPACT_EFFORT_SETTINGS_NAMESPACE = "qwen38-llamacpp-compaction-fix";
+const COMPACT_EFFORT_SETTINGS_NAMESPACE = "qwen38-gateway-compaction-fix";
 
 /**
  * First line of the dsh-compaction-basic summarization instruction, which the
@@ -370,14 +388,14 @@ export const COMPACTION_SIGNATURE = "You are now acting as a compaction engine f
 export const TITLE_SIGNATURE = "Create a concise title for an AI coding-assistant session from the supplied human messages";
 
 /** Marks the wrapped global fetch so `apply` never double-wraps. */
-const FETCH_WRAPPER_MARK = Symbol.for("qwen38-llamacpp-compaction-fix.fetch-wrapper");
+const FETCH_WRAPPER_MARK = Symbol.for("qwen38-gateway-compaction-fix.fetch-wrapper");
 
 /**
  * Current policy config source, rebound by every `apply` so a re-apply
  * (in-process profile reload) never leaves the installed wrapper pointing at
  * a stale config.
  */
-let policySource = () => ({ entries: [], floor: 0, wireReasoning: "", enableThinkingOff: false, models: [], chunking: null });
+let policySource = () => ({ entries: [], floor: 0, wireReasoning: "", enableThinkingOff: false, models: [], ninModels: new Set(), chunking: null });
 
 /**
  * Numeric sampling entries from one resolved config, in wire-key order.
@@ -414,6 +432,15 @@ function policyOf(config) {
   const models = Array.isArray(config?.models)
     ? config.models.filter((m) => typeof m === "string" && m.length > 0)
     : [];
+  // NInfer-gateway models: served by an NInfer gateway whose OpenAI-compatible
+  // endpoint rejects `chat_template_kwargs` (a llama.cpp-only option). For
+  // these models the `enable_thinking` chat_template_kwargs merge is skipped
+  // and thinking is switched off via `reasoning_effort` alone.
+  const ninModels = new Set(
+    Array.isArray(config?.ninModels)
+      ? config.ninModels.filter((m) => typeof m === "string" && m.length > 0)
+      : []
+  );
   const raw = config?.chunking;
   let chunking = null;
   if (raw !== null && typeof raw === "object" && raw.enabled === true) {
@@ -428,7 +455,7 @@ function policyOf(config) {
       };
     }
   }
-  return { entries: samplingEntries(config?.sampling), floor, wireReasoning, enableThinkingOff, models, chunking };
+  return { entries: samplingEntries(config?.sampling), floor, wireReasoning, enableThinkingOff, models, ninModels, chunking };
 }
 
 /**
@@ -471,17 +498,28 @@ function modelAllowed(body, models) {
 /**
  * Write the thinking-off wire fields into a parsed chat-completion body:
  * merge `enable_thinking: false` into `chat_template_kwargs` (preserving any
- * other template kwargs already present) when enabled, and set
- * `reasoning_effort` to the configured value when configured. Never touches
- * any other field.
+ * other template kwargs already present) when enabled AND the body targets a
+ * non-NInfer model (NInfer gateways reject `chat_template_kwargs` with a
+ * 400; for `ninModels` entries thinking-off relies on `reasoning_effort`
+ * alone), and set `reasoning_effort` to the configured value when configured.
+ * Never touches any other field.
  * @param body - the parsed JSON chat-completion body (mutated in place).
- * @param policy - `{wireReasoning, enableThinkingOff}` from the current config.
+ * @param policy - `{wireReasoning, enableThinkingOff, ninModels}` from the current config.
  * @returns true when at least one wire field was written.
  */
 export function applyThinkingOff(body, policy) {
   if (body === null || typeof body !== "object") return false;
   let changed = false;
-  if (policy?.enableThinkingOff === true) {
+  // NInfer gateways reject `chat_template_kwargs` outright (400
+  // chat_template_option_not_supported) — it is a llama.cpp-only option. For
+  // NInfer models thinking is switched off via `reasoning_effort` below; the
+  // chat_template_kwargs merge is llama.cpp-only.
+  const ninSet = policy?.ninModels;
+  const isNinModel =
+    typeof ninSet === "object" && ninSet !== null && ninSet.has !== undefined
+      ? ninSet.has(body.model)
+      : false;
+  if (policy?.enableThinkingOff === true && !isNinModel) {
     const existing = body.chat_template_kwargs;
     const target = existing !== null && typeof existing === "object" && !Array.isArray(existing) ? existing : {};
     if (target.enable_thinking !== false) {
@@ -729,7 +767,7 @@ function shrinkText(text, targetLen) {
   if (text.length <= targetLen) return text;
   const headLen = Math.floor(targetLen * 0.7);
   const tailLen = Math.floor(targetLen * 0.25);
-  return `${text.slice(0, headLen)}\n[... dsh-qwen38-llamacpp-compaction-fix: truncated ${text.length - headLen - tailLen} chars to fit the chunk budget ...]\n${text.slice(text.length - tailLen)}`;
+  return `${text.slice(0, headLen)}\n[... dsh-qwen38-gateway-compaction-fix: truncated ${text.length - headLen - tailLen} chars to fit the chunk budget ...]\n${text.slice(text.length - tailLen)}`;
 }
 
 /**
@@ -964,14 +1002,14 @@ export async function chunkedCompactionRescue(ctx, originalFetch, input, init, p
   const sliced = sliceMessages(rangeMessages, sliceBudget);
   if (sliced === null || sliced.slices.length > cfg.maxChunks) {
     ctx.logger.warn(
-      `qwen38-llamacpp-compaction-fix: compaction prompt (~${estimated} tokens) exceeds the chunk budget for "${body.model}" and cannot be split within maxChunks=${cfg.maxChunks}; forwarding the original request (it will likely overflow)`
+      `qwen38-gateway-compaction-fix: compaction prompt (~${estimated} tokens) exceeds the chunk budget for "${body.model}" and cannot be split within maxChunks=${cfg.maxChunks}; forwarding the original request (it will likely overflow)`
     );
     return undefined;
   }
   const { prefix, slices } = sliced;
   const sliceTokens = slices.map((slice) => slice.reduce((sum, m) => sum + estimateMessageTokens(m), 0));
   ctx.logger.info(
-    `qwen38-llamacpp-compaction-fix: compaction prompt (~${estimated} tokens) exceeds one call for "${body.model}" (window ${window}, budget ${callBudget}); running chunked map-reduce with ${slices.length} slices + merge`
+    `qwen38-gateway-compaction-fix: compaction prompt (~${estimated} tokens) exceeds one call for "${body.model}" (window ${window}, budget ${callBudget}); running chunked map-reduce with ${slices.length} slices + merge`
   );
   const model = typeof body.model === "string" ? body.model : "unknown";
   const id = `chatcmpl-dshfix-${Math.random().toString(16).slice(2, 18)}`;
@@ -1006,7 +1044,7 @@ export async function chunkedCompactionRescue(ctx, originalFetch, input, init, p
     // first, then the two results. Bounded depth; a final overflow throws and
     // degrades to the safe empty-summary outcome.
     if (estimateMergeInput(partials) <= callBudget || depth >= 2) return runMerge(buildMergeMessages(partials));
-    ctx.logger.info(`qwen38-llamacpp-compaction-fix: merge input (~${estimateMergeInput(partials)} tokens) exceeds one call; merging ${partials.length} partials hierarchically`);
+    ctx.logger.info(`qwen38-gateway-compaction-fix: merge input (~${estimateMergeInput(partials)} tokens) exceeds one call; merging ${partials.length} partials hierarchically`);
     const mid = Math.ceil(partials.length / 2);
     const left = await mergePartials(partials.slice(0, mid), depth + 1);
     const right = await mergePartials(partials.slice(mid), depth + 2);
@@ -1016,13 +1054,13 @@ export async function chunkedCompactionRescue(ctx, originalFetch, input, init, p
   const work = (async () => {
     const partials = [];
     for (let i = 0; i < slices.length; i++) {
-      ctx.logger.info(`qwen38-llamacpp-compaction-fix: summarizing slice ${i + 1}/${slices.length} (~${sliceTokens[i]} tokens)`);
+      ctx.logger.info(`qwen38-gateway-compaction-fix: summarizing slice ${i + 1}/${slices.length} (~${sliceTokens[i]} tokens)`);
       const chunkBody = buildInternalBody(body, [...prefix, ...slices[i], { role: "user", content: instructionText }], cfg.chunkMaxTokens);
       const result = await withRetry(() => internalCall(originalFetch, baseReq, chunkBody));
       if (result.content.length === 0) throw new Error(`slice ${i + 1}/${slices.length} produced no summary text`);
       partials.push(result.content);
     }
-    ctx.logger.info(`qwen38-llamacpp-compaction-fix: merging ${partials.length} partial checkpoints into the final checkpoint`);
+    ctx.logger.info(`qwen38-gateway-compaction-fix: merging ${partials.length} partial checkpoints into the final checkpoint`);
     return mergePartials(partials, 0);
   })();
 
@@ -1030,12 +1068,12 @@ export async function chunkedCompactionRescue(ctx, originalFetch, input, init, p
     // Non-streaming original: await the work and answer with plain JSON.
     try {
       const content = await work;
-      ctx.logger.info(`qwen38-llamacpp-compaction-fix: chunked compaction complete (${content.length} chars)`);
+      ctx.logger.info(`qwen38-gateway-compaction-fix: chunked compaction complete (${content.length} chars)`);
       return jsonResponse(id, created, model, content);
     } catch (error) {
       // Fail to the same safe outcome as today's overflow: an empty summary,
       // which dsh-compaction-basic rejects and the surface is preserved.
-      ctx.logger.error(`qwen38-llamacpp-compaction-fix: chunked compaction failed (${error?.message ?? error}); returning an empty summary so the harness keeps the conversation surface`);
+      ctx.logger.error(`qwen38-gateway-compaction-fix: chunked compaction failed (${error?.message ?? error}); returning an empty summary so the harness keeps the conversation surface`);
       return jsonResponse(id, created, model, "");
     }
   }
@@ -1065,10 +1103,10 @@ export async function chunkedCompactionRescue(ctx, originalFetch, input, init, p
       }
     }
     if (state.error !== undefined) {
-      ctx.logger.error(`qwen38-llamacpp-compaction-fix: chunked compaction failed (${state.error?.message ?? state.error}); ending the stream with an empty summary so the harness keeps the conversation surface`);
+      ctx.logger.error(`qwen38-gateway-compaction-fix: chunked compaction failed (${state.error?.message ?? state.error}); ending the stream with an empty summary so the harness keeps the conversation surface`);
       yield sseChunk(id, created, model, { content: "" }, "stop");
     } else {
-      ctx.logger.info(`qwen38-llamacpp-compaction-fix: chunked compaction complete (${state.value.length} chars)`);
+      ctx.logger.info(`qwen38-gateway-compaction-fix: chunked compaction complete (${state.value.length} chars)`);
       yield sseChunk(id, created, model, { content: state.value });
       yield sseChunk(id, created, model, {}, "stop");
     }
@@ -1119,7 +1157,7 @@ function installSamplingFetch(ctx, readPolicy) {
           const keys = (Array.isArray(policy.entries) ? policy.entries : []).map(([key]) => key).join(", ");
           const floorNote = policy.floor > 0 ? `; max_tokens floor ${policy.floor}` : "";
           ctx.logger.info(
-            `qwen38-llamacpp-compaction-fix: rewriting compaction request bodies (thinking off${keys.length > 0 ? `, sampling: ${keys}` : ""}${floorNote})`
+            `qwen38-gateway-compaction-fix: rewriting compaction request bodies (thinking off${keys.length > 0 ? `, sampling: ${keys}` : ""}${floorNote})`
           );
         }
         applied += 1;
@@ -1142,7 +1180,7 @@ function installSamplingFetch(ctx, readPolicy) {
           /* Never break LLM traffic: proceed with the untouched request. */
         }
         if (titleRewritten && titleApplied === 0) {
-          ctx.logger.info(`qwen38-llamacpp-compaction-fix: rewriting session-title request bodies (thinking off)`);
+          ctx.logger.info(`qwen38-gateway-compaction-fix: rewriting session-title request bodies (thinking off)`);
         }
         if (titleRewritten) titleApplied += 1;
       }
@@ -1525,7 +1563,7 @@ function apply(ctx, config = {}) {
         if (!warned.has(key)) {
           warned.add(key);
           ctx.logger.warn(
-            `qwen38-llamacpp-compaction-fix: model "${key}" offers no expressible reasoning effort (configured "${configured}") and the wire thinking-off gates are disabled; compaction keeps the model default`
+            `qwen38-gateway-compaction-fix: model "${key}" offers no expressible reasoning effort (configured "${configured}") and the wire thinking-off gates are disabled; compaction keeps the model default`
           );
         }
       }

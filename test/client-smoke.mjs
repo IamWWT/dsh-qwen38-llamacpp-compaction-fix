@@ -115,7 +115,7 @@ const fakeCtx = {
   },
   settingsScope: {
     bind: (spec) => {
-      assert.equal(spec.namespace, 'qwen38-llamacpp-compaction-fix')
+      assert.equal(spec.namespace, 'qwen38-gateway-compaction-fix')
       return fakeScope
     },
   },
@@ -137,7 +137,7 @@ vm.createContext(sandbox)
 vm.runInContext(readFileSync(`${ROOT}client.js`, 'utf8'), sandbox, { filename: 'client.js' })
 
 assert.equal(loaded.length, 1, 'exactly one module registered')
-assert.equal(loaded[0].id, 'dsh-qwen38-llamacpp-compaction-fix')
+assert.equal(loaded[0].id, 'dsh-qwen38-gateway-compaction-fix')
 
 const plugin = loaded[0].factory((specifier) => {
   if (specifier === 'react') return ReactStub
@@ -146,7 +146,7 @@ const plugin = loaded[0].factory((specifier) => {
   throw new Error(`unexpected require: ${specifier}`)
 })
 
-assert.equal(plugin.name, 'qwen38-llamacpp-compaction-fix')
+assert.equal(plugin.name, 'qwen38-gateway-compaction-fix')
 assert.deepEqual([...plugin.inject].sort(), ['locale', 'settingsScope', 'slots'])
 
 // ---------------------------------------------------------------------------
@@ -155,7 +155,7 @@ assert.deepEqual([...plugin.inject].sort(), ['locale', 'settingsScope', 'slots']
 plugin.apply(fakeCtx)
 assert.equal(effects, 1)
 assert.equal(localeRegisters.length, 1)
-assert.equal(localeRegisters[0].ns, 'qwen38-llamacpp-compaction-fix')
+assert.equal(localeRegisters[0].ns, 'qwen38-gateway-compaction-fix')
 for (const lang of ['zh', 'en']) {
   const dict = localeRegisters[0].dict[lang]
   assert.ok(dict && typeof dict.title === 'string' && dict.title.length > 0, `locale ${lang} has title`)
@@ -167,13 +167,13 @@ for (const lang of ['zh', 'en']) {
 assert.equal(slotEntries.length, 2, 'card + dedicated section registered')
 const entry = slotEntries.find((e) => e.options.name === 'settings.plugin.item')
 assert.ok(entry, 'plugins-tab card entry present')
-assert.equal(entry.options.key, 'qwen38-llamacpp-compaction-fix')
-assert.equal(entry.options.locale, 'qwen38-llamacpp-compaction-fix')
+assert.equal(entry.options.key, 'qwen38-gateway-compaction-fix')
+assert.equal(entry.options.locale, 'qwen38-gateway-compaction-fix')
 assert.equal(typeof entry.component, 'function')
 const sectionEntry = slotEntries.find((e) => e.options.name === 'settings.section')
 assert.ok(sectionEntry, 'dedicated settings.section entry present')
 assert.equal(sectionEntry.options.id, 'qwen38-compaction')
-assert.equal(sectionEntry.options.locale, 'qwen38-llamacpp-compaction-fix')
+assert.equal(sectionEntry.options.locale, 'qwen38-gateway-compaction-fix')
 assert.equal(typeof sectionEntry.options.order, 'number')
 assert.equal(typeof sectionEntry.component, 'function')
 // The nav label resolves through the bound locale (fake bind returns the key).
@@ -190,7 +190,7 @@ const t = (key) => localeRegisters[0].dict.zh[key]
 let props = { t, useQwen38Card: (sel) => sel(face.hooks.qwen38Card.getSnapshot()) }
 
 let html = render(entry.component(props))
-assert.match(html, /Qwen3\.8 llama\.cpp 压缩修复/, 'card title renders')
+assert.match(html, /Qwen3\.8 网关压缩修复/, 'card title renders')
 assert.match(html, /Qwen3\.8-27B-GGUF/, 'model id renders')
 assert.match(html, /262144/, 'context window renders')
 assert.match(html, /20000/, 'user-overridden maxTokensFloor renders (not the base 16384)')
@@ -201,7 +201,7 @@ assert.match(html, /作用域/, 'card carries the scope banner')
 // The dedicated section renders the same live values plus the scope banner
 // and the /qwen38-compact usage hint.
 let sectionHtml = render(sectionEntry.component(props))
-assert.match(sectionHtml, /Qwen3\.8 llama\.cpp 压缩修复/, 'section title renders')
+assert.match(sectionHtml, /Qwen3\.8 网关压缩修复/, 'section title renders')
 assert.match(sectionHtml, /作用域/, 'section carries the scope banner')
 assert.match(sectionHtml, /\/qwen38-compact/, 'section shows the manual command hint')
 

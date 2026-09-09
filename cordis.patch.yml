@@ -1,12 +1,12 @@
-# dsh-qwen38-llamacpp-compaction-fix — bundle patch.
+# dsh-qwen38-gateway-compaction-fix — bundle patch.
 #
 # Registers the plugin on the host's `llm/stream` waterfall and installs its
 # process-local fetch wrapper. The config block below is the BASE layer:
-# a `qwen38-llamacpp-compaction-fix:` section in $DSH_HOME/settings.yaml
+# a `qwen38-gateway-compaction-fix:` section in $DSH_HOME/settings.yaml
 # overrides it without a restart (see README.md).
 - insert:
-    - id: qwen38-llamacpp-compaction-fix
-      name: dsh-qwen38-llamacpp-compaction-fix
+    - id: qwen38-gateway-compaction-fix
+      name: dsh-qwen38-gateway-compaction-fix
       config:
         # Stamp this reasoning effort onto matched calls. "" disables the
         # effort policy (the wire-level layers still apply while configured).
@@ -15,11 +15,11 @@
         # under llm-pi-ai.providers.<provider>.models[].id in settings.yaml).
         # A call/body whose model is not in this list passes through
         # untouched. Empty list disables the whole policy.
-        models: [Qwen3.8-27B-GGUF]
+        models: [Qwen3.8-27B-GGUF, qwen3.8-27b]
         # Sampling settings written verbatim into the compaction request body
-        # (wire field names; all accepted by llama.cpp). These are Qwen3's
-        # recommended parameters for non-thinking mode. {} leaves sampling
-        # untouched.
+        # (wire field names; accepted by both llama.cpp and NInfer). These are
+        # Qwen3's recommended parameters for non-thinking mode. {} leaves
+        # sampling untouched.
         sampling:
           temperature: 0.7
           top_p: 0.8
@@ -31,14 +31,21 @@
         # value (never lowers it) so the summarizer keeps its output budget
         # when pi-ai's client-side context clamp collapses it. 0 disables.
         maxTokensFloor: 16384
+        # Models in `models` that are served by an NInfer gateway
+        # (ninfer-serve). NInfer rejects `chat_template_kwargs` with a 400,
+        # so for these ids the llama.cpp `enable_thinking` merge is skipped
+        # and thinking is switched off via `reasoning_effort` (the wire
+        # value below) alone.
+        ninModels: [qwen3.8-27b]
         # Wire reasoning_effort value written into matched request bodies
-        # ("none" is accepted by llama.cpp build 10798 and maps onto the Qwen3
-        # chat template). "" disables this field write (the
-        # chat_template_kwargs gate still applies).
+        # ("none" is accepted by both llama.cpp build 10798 and NInfer).
+        # "" disables this field write (the chat_template_kwargs gate still
+        # applies on llama.cpp models).
         wireReasoning: none
         # Merge enable_thinking: false into the body's chat_template_kwargs on
-        # matched request bodies (the primary Qwen3 thinking switch on
-        # llama.cpp). false never touches chat_template_kwargs.
+        # matched, non-NInfer request bodies (the primary Qwen3 thinking
+        # switch on llama.cpp; skipped for ninModels). false never touches
+        # chat_template_kwargs.
         enableThinkingOff: true
         # Oversized-compaction rescue: when a compaction prompt is larger than
         # one call for the target model (e.g. after switching from a 1M-
@@ -46,12 +53,14 @@
         # instead of letting dsh report "cannot compact".
         chunking:
           enabled: true
-          # Exact model id -> context window (tokens). Models not listed here
-          # are never chunked (fail open to the single-shot behavior). Set
-          # this to the value Unsloth Studio / llama-server actually runs with
-          # (check GET /v1/models -> details.n_ctx on the llama-server port).
+          # Exact model id -> context window (tokens), for both engines.
+          # Models not listed here are never chunked (fail open to the
+          # single-shot behavior). Set each to the window the gateway actually
+          # runs with (llama.cpp: GET /v1/models -> details.n_ctx; NInfer:
+          # its n_ctx).
           contextWindows:
             Qwen3.8-27B-GGUF: 262144
+            qwen3.8-27b: 369144
           # Per-slice input budget as a fraction of the window (0, 1].
           chunkRatio: 0.7
           # Output cap for one partial per-slice summary.

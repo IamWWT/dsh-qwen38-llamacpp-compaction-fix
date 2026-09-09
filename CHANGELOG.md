@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.0.0 (2026-09-09)
+
+### 改名 + NInfer 引擎支持
+
+- **改名**:包名 `dsh-qwen38-llamacpp-compaction-fix` → `dsh-qwen38-gateway-compaction-fix`
+  (设置命名空间同步改为 `qwen38-gateway-compaction-fix`;仓库更名为
+  IamWWT/dsh-qwen38-gateway-compaction-fix)。更名原因:插件不再只服务 llama.cpp。
+- **新增 NInfer 引擎支持**:新增 `ninModels` 配置(默认 `[]`)——列入其中的模型由
+  NInfer 网关服务,自动跳过 `chat_template_kwargs.enable_thinking` 合并(NInfer 对该
+  字段返回 400 `chat_template_option_not_supported`),思考关闭改走
+  `reasoning_effort` wire 字段;采样/max_tokens 下限/分片救援对两种引擎一视同仁。
+  修复"llama.cpp 插件误用于 NInfer 模型导致所有压缩 400 失败"的故障。
+- 基础层默认 `models` 增加 `qwen3.8-27b`、`ninModels: [qwen3.8-27b]`、
+  `chunking.contextWindows` 增加 `qwen3.8-27b: 369144`(均可被 settings.yaml 覆盖)。
+- 设置卡(client)文案更新为双引擎描述。
+
+## 0.5.0
+
 ## 0.5.0 (2026-09-06)
 
 ### Added — `/qwen38-new-context` hard-reset command (the researched Codex third feature, now implemented)
@@ -177,7 +195,7 @@ Qwen3.8-27B GGUF, llama.cpp build 10798).
   prefix matches (compaction instruction must start the final user message; the
   title prompt must start a system/developer message), so conversation turns
   that merely quote either signature pass through untouched.
-- Settings section `qwen38-llamacpp-compaction-fix:` in `$DSH_HOME/settings.yaml`
+- Settings section `qwen38-gateway-compaction-fix:` in `$DSH_HOME/settings.yaml`
   overrides the bundle config live, without a restart.
 
 ### R2 — oversized-conversation compaction rescue (chunked map-reduce)

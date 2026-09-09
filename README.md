@@ -1,7 +1,8 @@
-# Qwen3.8 (llama.cpp) Compaction Fix
+# Qwen3.8 (本地网关: llama.cpp / NInfer) Compaction Fix
 
-给 **llama.cpp 网关**(本机经 Unsloth Studio 启动的 `llama-server`)上的本地
-**qwen3.8-27b** 修复 dsh(DeepSeek Harness)压缩(compaction)问题的插件。它做三件事:
+给**本地 Qwen3.8 网关**(llama.cpp 经 Unsloth Studio 的 `llama-server`,
+以及 **NInfer**(`ninfer-serve`))上的本地 **qwen3.8-27b** 修复 dsh(DeepSeek
+Harness)压缩(compaction)问题的插件。它做三件事:
 
 1. **压缩时不思考**:dsh 发起的两个辅助调用(压缩摘要、会话标题生成)只针对这些调用
    关闭 thinking,并套用模型"非思考模式"推荐的采样参数;正常对话、子代理、其他模型
@@ -16,11 +17,31 @@
    在文件/git/运行环境里的场景——参考 Codex token-budget + hard context rollover
    的设计(见文末调研笔记)。
 
-> **范围:llama.cpp 网关。** 本文档中的所有 wire 字段均在
-> llama.cpp build 10798(Unsloth 团队编译)+ Unsloth Studio(:8880 OpenAI 兼容端点)
-> + `Qwen3.8-27B-UD-Q4_K_XL.gguf` 上实测验证。其他引擎(vLLM、FastMTP、NInfer……)
-> 的 wire 参数不同,不在本插件范围内(NInfer 版本见姊妹项目
-> [dsh-qwen38-ninfer-compaction-fix](https://github.com/zhubaohi/dsh-qwen38-compaction-fix))。
+> **范围:llama.cpp 与 NInfer 两种本地网关。** wire 字段按引擎区分:
+> - **llama.cpp**(`chat_template_kwargs.enable_thinking` + `reasoning_effort` + 采样 +
+>   max_tokens 下限)——在 llama.cpp build 10798(Unsloth 团队编译)+ Unsloth Studio
+>   (:8880 OpenAI 兼容端点)+ `Qwen3.8-27B-UD-Q4_K_XL.gguf` 上实测验证;
+> - **NInfer**(`ninfer-serve`,`reasoning_effort` + 采样 + max_tokens 下限)——
+>   NInfer 网关**不认** `chat_template_kwargs`(会 400 `chat_template_option_not_supported`),
+>   因此列入 `ninModels` 的模型自动跳过该字段,只走 `reasoning_effort`。
+>
+> 其他引擎(vLLM、FastMTP……)的 wire 参数不同,不在本插件范围内。
+
+### NInfer 网关支持(v1.0.0 起)
+
+NInfer(`ninfer-serve` OpenAI 兼容端点)与 llama.cpp 的关键差异:
+
+- **不认 `chat_template_kwargs`** —— 带该字段的请求直接 400
+  (`chat_template_option_not_supported`),压缩调用被整体拒绝(表现为"到期自动压缩
+  一直失败/无法压缩");
+- **认 `reasoning_effort`**(如 `none`)与常规采样参数。
+
+因此:把 NInfer 提供的模型 id(与 `llm-pi-ai` providers 中声明的 id 一致,如
+`qwen3.8-27b`)同时写进 `models` 和 `ninModels` 即可。列入 `ninModels` 的模型
+自动跳过 `chat_template_kwargs` 合并,只写 `reasoning_effort` + 采样 +
+max_tokens 下限;分片救援对两种引擎同样有效。若 NInfer 模型在 settings.yaml 里
+声明了 `reasoningEfforts`(含 `off`),瀑布层还会在进程内额外把压缩/标题调用打上
+`off`(双保险)。
 
 ---
 
@@ -76,13 +97,13 @@ dsh-compaction-basic 的摘要永远是**单次 LLM 调用**:把待压缩区间�
 
 前置:你的 DSH home 是 `~/.dsh-dev`(shell 函数 `dsh-dev()` 已设置
 `DSH_HOME=$HOME/.dsh-dev`)。插件源码在
-`~/Downloads/aigc/proj/deepseek/dsh-plugins/dsh-qwen38-llamacpp-compaction-fix/`。
+`~/Downloads/aigc/proj/deepseek/dsh-plugins/dsh-qwen38-gateway-compaction-fix/`。
 
 **安装/重装就是这一句**(实测:`dsh plugin add` 会自动把插件写进 profile 的
 `dependencies` **和** `dsh.profile.bundles` 两处,不需要手改任何配置文件):
 
 ```sh
-dsh-dev plugin --profile web add /home/wwt/Downloads/aigc/proj/deepseek/dsh-plugins/dsh-qwen38-llamacpp-compaction-fix
+dsh-dev plugin --profile web add /home/wwt/Downloads/aigc/proj/deepseek/dsh-plugins/dsh-qwen38-gateway-compaction-fix
 ```
 
 然后**重启 `dsh web`**(或刷新 GUI 页面)即生效。装完后 profile 里是
@@ -91,16 +112,16 @@ dsh-dev plugin --profile web add /home/wwt/Downloads/aigc/proj/deepseek/dsh-plug
 嫌命令长可以加个别名(写进 `~/.bashrc`):
 
 ```sh
-alias dshfix='dsh-dev plugin --profile web add /home/wwt/Downloads/aigc/proj/deepseek/dsh-plugins/dsh-qwen38-llamacpp-compaction-fix'
+alias dshfix='dsh-dev plugin --profile web add /home/wwt/Downloads/aigc/proj/deepseek/dsh-plugins/dsh-qwen38-gateway-compaction-fix'
 ```
 
-卸载:`dsh-dev plugin --profile web rm dsh-qwen38-llamacpp-compaction-fix`
+卸载:`dsh-dev plugin --profile web rm dsh-qwen38-gateway-compaction-fix`
 
 ### 从本仓库安装(新机器/新目录)
 
 ```sh
-git clone https://github.com/IamWWT/dsh-qwen38-llamacpp-compaction-fix.git
-dsh-dev plugin --profile web add <克隆路径>/dsh-qwen38-llamacpp-compaction-fix
+git clone https://github.com/IamWWT/dsh-qwen38-gateway-compaction-fix.git
+dsh-dev plugin --profile web add <克隆路径>/dsh-qwen38-gateway-compaction-fix
 # 重启 dsh web(或刷新 GUI 页面)
 ```
 
@@ -110,9 +131,9 @@ dsh-dev plugin --profile web add <克隆路径>/dsh-qwen38-llamacpp-compaction-f
 **验证是否装上:**
 
 - 触发一次压缩(或等自动压缩)后,dsh 日志里应出现:
-  `qwen38-llamacpp-compaction-fix: rewriting compaction request bodies (thinking off, sampling: ...)`;
+  `qwen38-gateway-compaction-fix: rewriting compaction request bodies (thinking off, sampling: ...)`;
 - 切小模型后的超大对话首次压缩时会出现:
-  `qwen38-llamacpp-compaction-fix: compaction prompt (~N tokens) exceeds one call for "Qwen3.8-27B-GGUF" (...); running chunked map-reduce with K slices + merge`
+  `qwen38-gateway-compaction-fix: compaction prompt (~N tokens) exceeds one call for "Qwen3.8-27B-GGUF" (...); running chunked map-reduce with K slices + merge`
   以及逐片的 `summarizing slice i/K`、`merging ... partial checkpoints`、`chunked compaction complete`。
 
 > 插件源码目录里有一个指向 dsh 全局安装的 `node_modules` 软链(仅用于本地跑测试,
@@ -123,7 +144,7 @@ dsh-dev plugin --profile web add <克隆路径>/dsh-qwen38-llamacpp-compaction-f
 ### 网页设置(推荐)
 
 dsh web 的 **设置** 面板里有两个入口(同一份数据、同一个命名空间
-`qwen38-llamacpp-compaction-fix`,改哪个都一样):
+`qwen38-gateway-compaction-fix`,改哪个都一样):
 
 1. **左侧导航独立条目「Qwen3.8 压缩修复」**(v0.3.0 起)——专属页面,顶部有
    作用域提示(本页参数只影响压缩/标题辅助调用,正常对话不受影响)和
@@ -229,17 +250,18 @@ curl -s http://127.0.0.1:<llama-server端口>/v1/models \
 所有键都是可选的,默认值由 schema 补齐。优先级(高→低):
 
 1. `$DSH_HOME/settings.yaml`(即 `~/.dsh-dev/settings.yaml`)里的
-   `qwen38-llamacpp-compaction-fix:` 段 —— **实时生效,无需重启**;
+   `qwen38-gateway-compaction-fix:` 段 —— **实时生效,无需重启**;
 2. profile 里插件行的 `config:` 块(`cordis.patch.yml`,下次 GUI 加载时生效);
 3. 插件内置默认值。
 
 `~/.dsh-dev/settings.yaml` 示例:
 
 ```yaml
-qwen38-llamacpp-compaction-fix:
+qwen38-gateway-compaction-fix:
   effort: off            # "" 关闭 effort 策略
-  models: [Qwen3.8-27B-GGUF]   # 精确 id;[] 关闭整个策略
-  sampling:              # 原样写入压缩请求体(wire 字段名)
+  models: [Qwen3.8-27B-GGUF, qwen3.8-27b]   # 精确 id;[] 关闭整个策略
+  ninModels: [qwen3.8-27b]  # 其中由 NInfer 网关服务的模型:跳过 chat_template_kwargs(它 400),只走 reasoning_effort
+  sampling:              # 原样写入压缩请求体(wire 字段名,两种引擎都认)
     temperature: 0.7
     top_p: 0.8
     top_k: 20
@@ -248,11 +270,12 @@ qwen38-llamacpp-compaction-fix:
     repetition_penalty: 1.0
   maxTokensFloor: 16384  # 0 关闭 floor
   wireReasoning: none    # "" 关闭 reasoning_effort 字段写入
-  enableThinkingOff: true   # false 则从不写 chat_template_kwargs
+  enableThinkingOff: true   # 对 NInfer 模型自动跳过(ninModels);false 则从不写 chat_template_kwargs
   chunking:              # R2 救援策略
     enabled: true
     contextWindows:      # 模型 id -> 实际上下文窗口(token);未列出的模型绝不分片
       Qwen3.8-27B-GGUF: 262144
+      qwen3.8-27b: 369144
     chunkRatio: 0.7
     chunkMaxTokens: 8192
     mergeMaxTokens: 16384
@@ -269,11 +292,12 @@ qwen38-llamacpp-compaction-fix:
 | `command.newContext.enabled` | `true` | `/qwen38-new-context` 硬重置命令(不调模型、秒级);false 则不注册。两者独立开关,可只留一个。 |
 | `effort` | `"off"` | 瀑布层给匹配调用打的 reasoning effort。取值顺序:配置值 → `off` → `low`;模型一个都不提供时保持模型默认(仅当 wire 层 thinking-off 也全关时才告警一次)。`""` 关闭该策略。 |
 | `purposes` | `["compaction"]` | 瀑布层作用的 LLM 调用 purpose 标签。 |
-| `models` | `["Qwen3.8-27B-GGUF"]` | 精确模型 id(大小写敏感,取 settings.yaml 中 `llm-pi-ai.providers.<provider>.models[].id`)。空列表关闭整个策略。**见下节"模型名必须匹配"。** |
+| `models` | `["Qwen3.8-27B-GGUF", "qwen3.8-27b"]` | 精确模型 id(大小写敏感,取 settings.yaml 中 `llm-pi-ai.providers.<provider>.models[].id`)。空列表关闭整个策略。**见下节"模型名必须匹配"。** |
+| `ninModels` | `[]` | `models` 中**由 NInfer 网关服务**的模型 id 子集。这些模型跳过 `chat_template_kwargs` 合并(NInfer 会 400 拒绝该字段),思考开关只走 `reasoning_effort`。llama.cpp 模型不要列在这里。 |
 | `sampling.*` | `{}` | 原样写入压缩请求体的采样参数;缺省键不写。默认值即 Qwen3 非思考模式官方推荐参数,且全部被 llama.cpp 接受(实测)。 |
 | `maxTokensFloor` | `16384` | 压缩请求体 wire `max_tokens`/`max_completion_tokens` 至少抬到该值;绝不降低。`0` 关闭。 |
 | `wireReasoning` | `"none"` | 写入匹配请求体的 `reasoning_effort` 值(llama.cpp build 10798 接受并映射进 Qwen3 模板)。`""` 关闭该字段写入。 |
-| `enableThinkingOff` | `true` | true 时把 `enable_thinking: false` 合并进请求体 `chat_template_kwargs`(保留其他 kwarg);false 则从不触碰该字段。 |
+| `enableThinkingOff` | `true` | true 时把 `enable_thinking: false` 合并进请求体 `chat_template_kwargs`(保留其他 kwarg;`ninModels` 中的 NInfer 模型自动跳过);false 则从不触碰该字段。 |
 | `chunking.enabled` | `true` | R2 救援总开关。 |
 | `chunking.contextWindows` | `{}` | 精确模型 id → 上下文窗口(token)。**必须填 llama-server 实际运行的 n_ctx**(在 llama-server 端口查 `GET /v1/models` → `details.n_ctx`;Unsloth Studio 切换 GGUF 后可能变化)。未列出的模型绝不分片(fail-open)。 |
 | `chunking.chunkRatio` | `0.7` | 单次内部调用的输入预算 = 窗口 × 该比例(其余留给指令、估算误差与输出上限),取值 (0,1]。 |
