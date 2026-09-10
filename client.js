@@ -20,7 +20,7 @@ window.__ModuleLoader__.load({
 
 		const React = require('react');
 		const h = React.createElement;
-		const { Button, Input } = require('@deepseek-ai/dsh-client-ui-primitives');
+		const { Button, Input, Tag, IconChevronDownOutline14 } = require('@deepseek-ai/dsh-client-ui-primitives');
 		const { createSnapshotStore } = require('@deepseek-ai/dsh-client-store');
 
 		/** Settings namespace this card edits (must match the Host half). */
@@ -64,6 +64,9 @@ window.__ModuleLoader__.load({
 				maxChunksLabel: '最大分片数 maxChunks',
 				on: '已启用',
 				off: '已停用',
+				collapse: '收起',
+				expand: '展开',
+				unsaved: '未保存',
 				save: '保存',
 				saving: '保存中…',
 				discard: '放弃修改',
@@ -124,6 +127,9 @@ window.__ModuleLoader__.load({
 				maxChunksLabel: 'max slices (maxChunks)',
 				on: 'on',
 				off: 'off',
+				collapse: 'Collapse',
+				expand: 'Expand',
+				unsaved: 'Unsaved',
 				save: 'Save',
 				saving: 'Saving…',
 				discard: 'Discard',
@@ -248,6 +254,9 @@ window.__ModuleLoader__.load({
 				this.stagedWindows = new Map();
 				this.saving = false;
 				this.failed = false;
+				// Disclosure is card-local state (mirrors the built-in plugin cards):
+				// which card the user has open is a reading gesture, not persisted.
+				this.open = false;
 				this.store = createSnapshotStore(this.project());
 				scope.subscribe(() => this.publish());
 			}
@@ -312,6 +321,7 @@ window.__ModuleLoader__.load({
 				fields,
 				windows,
 				rescueOn,
+				open: this.open,
 				dirty: this.staged.size > 0 || this.stagedWindows.size > 0,
 				saving: this.saving,
 				failed: this.failed,
@@ -320,6 +330,11 @@ window.__ModuleLoader__.load({
 
 			publish() {
 				this.store.set(this.project());
+			}
+
+			toggleOpen() {
+				this.open = !this.open;
+				this.publish();
 			}
 
 			edit(id, text) {
@@ -388,6 +403,8 @@ window.__ModuleLoader__.load({
 				this.publish();
 				try {
 					await this.scope.mutate(ops, snap.revision);
+					// Same gesture as the built-in cards: collapse once the write settled.
+					this.open = false;
 					this.staged.clear();
 					this.stagedWindows.clear();
 				} catch (error) {
@@ -408,6 +425,7 @@ window.__ModuleLoader__.load({
 					resetWindow: (model) => this.resetWindow(model),
 					save: () => this.save(),
 					discard: () => this.discard(),
+					toggleOpen: () => this.toggleOpen(),
 				};
 			}
 		}
@@ -416,19 +434,48 @@ window.__ModuleLoader__.load({
 		// UI atoms (plain React + inline styles; primitives for themed inputs).
 		// ------------------------------------------------------------------
 		const labelWidth = '230px';
-		const rowStyle = { display: 'flex', alignItems: 'flex-start', gap: '16px', padding: '9px 0', borderBottom: '1px solid rgba(128,128,128,0.12)' };
-		const labelStyle = { flexBasis: labelWidth, flexGrow: 0, flexShrink: 0, fontSize: '13px', paddingTop: '6px' };
+		// Typography and rules follow the settings surface's own tokens (the
+		// built-in cards), so nothing here reads as a foreign block: label 13px
+		// primary, hints 12px tertiary, hairline separators from --dsw-alias-*.
+		const rowStyle = { display: 'flex', alignItems: 'flex-start', gap: '16px', padding: '9px 0', borderBottom: '0.5px solid var(--dsw-alias-border-l2, rgba(128,128,128,0.14))' };
+		const labelStyle = { flexBasis: labelWidth, flexGrow: 0, flexShrink: 0, fontSize: '13px', lineHeight: 1.5, paddingTop: '6px', color: 'var(--dsw-alias-label-primary, inherit)' };
 		const controlStyle = { flex: '1 1 auto', minWidth: 0, display: 'flex', flexDirection: 'column', gap: '4px' };
 		const inputRowStyle = { display: 'flex', alignItems: 'center', gap: '8px' };
-		const hintStyle = { fontSize: '11.5px', opacity: 0.6, lineHeight: 1.45 };
-		const badgeStyle = { fontSize: '11px', opacity: 0.65, marginLeft: '8px', border: 'none', background: 'none', cursor: 'pointer', color: 'inherit', textDecoration: 'underline dotted' };
-		const sectionTitleStyle = { fontSize: '13px', fontWeight: 600, margin: '18px 0 4px', opacity: 0.85 };
+		const hintStyle = { fontSize: '12px', color: 'var(--dsw-alias-label-tertiary, rgba(128,128,128,0.85))', lineHeight: 1.5 };
+		const badgeStyle = { fontSize: '11.5px', marginLeft: '8px', border: 'none', background: 'none', cursor: 'pointer', color: 'var(--dsw-alias-label-tertiary, inherit)', textDecoration: 'underline dotted' };
+		const sectionTitleStyle = { fontSize: '12.5px', fontWeight: 600, margin: '16px 0 4px', color: 'var(--dsw-alias-label-secondary, rgba(128,128,128,0.95))' };
 		const scopeBannerStyle = {
-			margin: '10px 0 12px', padding: '9px 12px', fontSize: '12.5px', lineHeight: 1.5,
-			borderRadius: '6px', border: '1px solid #b45309',
-			background: 'color-mix(in srgb, #f59e0b 12%, transparent)',
+			margin: '10px 0 12px', padding: '9px 12px', fontSize: '12px', lineHeight: 1.5,
+			borderRadius: '8px', border: '0.5px solid var(--dsw-alias-label-warning, #b45309)',
+			color: 'var(--dsw-alias-label-secondary, inherit)',
+			background: 'color-mix(in srgb, var(--dsw-alias-label-warning, #f59e0b) 10%, transparent)',
 		};
-		const commandHintStyle = { margin: '0 0 6px', fontSize: '12.5px', lineHeight: 1.5, opacity: 0.75 };
+		const commandHintStyle = { margin: '0 0 6px', fontSize: '12px', lineHeight: 1.5, color: 'var(--dsw-alias-label-tertiary, rgba(128,128,128,0.9))' };
+
+		// Plugin-card chrome copied from the built-in plugin cards
+		// (ui-settings-plugins/PluginCard.module.css), expressed against the same
+		// --dsw-alias-* tokens: a header naming the plugin over its description,
+		// 16px radius on a layer-3 surface, and the controls only when open.
+		const cardStyle = {
+			listStyle: 'none', border: '0.5px solid var(--dsw-alias-border-l4, rgba(128,128,128,0.28))',
+			borderRadius: '16px', background: 'var(--dsw-alias-bg-layer-3, transparent)',
+			transition: 'border-color .16s, background .16s',
+		};
+		const cardOpenStyle = Object.assign({}, cardStyle, {
+			background: 'var(--dsw-alias-bg-layer-2, rgba(128,128,128,0.06))',
+			borderColor: 'var(--dsw-alias-label-dimmed, rgba(128,128,128,0.45))',
+		});
+		const cardHeaderStyle = {
+			width: '100%', appearance: 'none', border: 0, background: 'none',
+			font: 'inherit', color: 'inherit', textAlign: 'left', cursor: 'pointer',
+			display: 'flex', alignItems: 'center', gap: '12px',
+			padding: '14px 16px', borderRadius: '12px',
+		};
+		const headTextStyle = { flex: '1 1 auto', minWidth: 0, display: 'flex', flexDirection: 'column', gap: '4px' };
+		const cardNameStyle = { fontSize: '15px', fontWeight: 600, lineHeight: 1.4, color: 'var(--dsw-alias-label-primary, inherit)' };
+		const cardDescStyle = { fontSize: '13px', lineHeight: 1.5, color: 'var(--dsw-alias-label-tertiary, rgba(128,128,128,0.85))' };
+		const chevronStyle = { flex: 'none', color: 'var(--dsw-alias-label-tertiary, rgba(128,128,128,0.85))', transition: 'transform .16s' };
+		const cardBodyStyle = { borderTop: '0.5px solid var(--dsw-alias-border-l2, rgba(128,128,128,0.18))', margin: '0 16px', paddingBottom: '8px' };
 
 		/**
 		 * Self-explanatory on/off switch (role=switch): a pill with a knob plus
@@ -599,12 +646,30 @@ window.__ModuleLoader__.load({
 
 		function Card(props) {
 			const t = props.t;
-			return h('section', { 'aria-label': t('title') },
-				h('header', null,
-					h('h3', null, t('title')),
-					h('p', { style: hintStyle }, t('description')),
+			const s = props.useQwen38Card((x) => x);
+			const open = Boolean(s.open);
+			return h('li', { style: open ? cardOpenStyle : cardStyle },
+				h('button', {
+					type: 'button',
+					style: cardHeaderStyle,
+					'aria-expanded': open ? 'true' : 'false',
+					'aria-label': t(open ? 'collapse' : 'expand') + ': ' + t('title'),
+					onClick: () => props.toggleOpen(),
+				},
+					h('span', { style: headTextStyle },
+						h('span', { style: cardNameStyle }, t('title')),
+						h('span', { style: cardDescStyle }, t('description')),
+					),
+					s.dirty ? h(Tag, { tone: 'neutral' }, t('unsaved')) : null,
+					h(IconChevronDownOutline14, {
+						style: open ? Object.assign({}, chevronStyle, { transform: 'rotate(180deg)' }) : chevronStyle,
+					}),
 				),
-				h(Fields, Object.assign({ idPrefix: 'plugin-config-qwen38' }, props)),
+				open
+					? h('div', { style: cardBodyStyle },
+						h(Fields, Object.assign({ idPrefix: 'plugin-config-qwen38' }, props)),
+					)
+					: null,
 			);
 		}
 
@@ -612,8 +677,8 @@ window.__ModuleLoader__.load({
 		function Qwen38Section(props) {
 			const t = props.t;
 			return h('div', null,
-				h('h2', null, t('title')),
-				h('p', { style: hintStyle }, t('description')),
+				h('h2', { style: { margin: '0 0 6px', fontSize: '18px', fontWeight: 600, lineHeight: 1.4 } }, t('title')),
+				h('p', { style: cardDescStyle }, t('description')),
 				h('p', { style: commandHintStyle }, t('commandHint')),
 				h(Fields, Object.assign({ idPrefix: 'qwen38-section' }, props)),
 			);

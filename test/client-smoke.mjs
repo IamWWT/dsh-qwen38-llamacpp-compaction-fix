@@ -41,6 +41,8 @@ const ReactStub = { createElement }
 const PrimitivesStub = {
   Button: ({ children, ...rest }) => createElement('button', rest, children),
   Input: (props) => createElement('input', props),
+  Tag: ({ children, ...rest }) => createElement('span', rest, children),
+  IconChevronDownOutline14: (props) => createElement('svg', props),
 }
 
 // dsh-client-store stand-in: the three methods the controller uses.
@@ -159,7 +161,7 @@ assert.equal(localeRegisters[0].ns, 'qwen38-gateway-compaction-fix')
 for (const lang of ['zh', 'en']) {
   const dict = localeRegisters[0].dict[lang]
   assert.ok(dict && typeof dict.title === 'string' && dict.title.length > 0, `locale ${lang} has title`)
-  for (const key of ['nav', 'scopeNote', 'commandHint', 'modelsLabel', 'windowsTitle', 'windowsHint', 'basicTitle', 'enableThinkingOffLabel', 'wireReasoningLabel', 'maxTokensFloorLabel', 'rescueLabel', 'advancedTitle', 'on', 'off', 'save', 'discard', 'overridden', 'reset', 'invalidNumber', 'saveFailed']) {
+  for (const key of ['nav', 'scopeNote', 'commandHint', 'modelsLabel', 'windowsTitle', 'windowsHint', 'basicTitle', 'enableThinkingOffLabel', 'wireReasoningLabel', 'maxTokensFloorLabel', 'rescueLabel', 'advancedTitle', 'on', 'off', 'collapse', 'expand', 'unsaved', 'save', 'discard', 'overridden', 'reset', 'invalidNumber', 'saveFailed']) {
     assert.ok(typeof dict[key] === 'string' && dict[key].length > 0, `locale ${lang} has ${key}`)
   }
 }
@@ -181,7 +183,7 @@ assert.equal(sectionEntry.options.label(), 'nav')
 
 const face = entry.options.inject()
 assert.ok(face.hooks.qwen38Card, 'face exposes the card store hook')
-for (const fn of ['edit', 'resetField', 'save', 'discard']) assert.equal(typeof face[fn], 'function')
+for (const fn of ['edit', 'resetField', 'save', 'discard', 'toggleOpen']) assert.equal(typeof face[fn], 'function')
 
 // ---------------------------------------------------------------------------
 // Render pass 1: base value + one user override.
@@ -189,7 +191,21 @@ for (const fn of ['edit', 'resetField', 'save', 'discard']) assert.equal(typeof 
 const t = (key) => localeRegisters[0].dict.zh[key]
 let props = { t, useQwen38Card: (sel) => sel(face.hooks.qwen38Card.getSnapshot()) }
 
-let html = render(entry.component(props))
+// Collapsible card, same reading gesture as the built-in plugin cards: closed
+// by default, the header is the disclosure button, and a settled save closes it
+// again. Controls render only while open.
+const closedHtml = render(entry.component(props))
+assert.match(closedHtml, /aria-expanded="false"/, 'card starts collapsed')
+assert.ok(!/maxTokensFloor/.test(closedHtml), 'collapsed card hides its controls')
+assert.match(closedHtml, /Qwen3\.8 网关压缩修复/, 'collapsed card still names the plugin')
+face.toggleOpen()
+assert.equal(face.hooks.qwen38Card.getSnapshot().open, true, 'toggleOpen opens the card')
+const renderCard = () => {
+  if (!face.hooks.qwen38Card.getSnapshot().open) face.toggleOpen()
+  return render(entry.component(props))
+}
+
+let html = renderCard()
 assert.match(html, /Qwen3\.8 网关压缩修复/, 'card title renders')
 assert.match(html, /Qwen3\.8-27B-GGUF/, 'model id renders')
 assert.match(html, /262144/, 'context window renders')
@@ -220,7 +236,7 @@ assert.equal(face.hooks.qwen38Card.getSnapshot().rescueOn, true, 'rescue on by d
 // Turn the rescue switch off: snapshot flips and the chunking rows dim.
 face.edit('chunkingEnabled', 'false')
 assert.equal(face.hooks.qwen38Card.getSnapshot().rescueOn, false, 'staged rescue-off flips the gate')
-html = render(entry.component(props))
+html = renderCard()
 assert.match(html, /依赖「超大对话分片救援」开启——当前已停用/, 'rescue-off note appears in the chunking group')
 face.discard()
 assert.match(sectionHtml, /20000/, 'section reads the same live scope (user override)')
@@ -230,8 +246,9 @@ assert.match(sectionHtml, /20000/, 'section reads the same live scope (user over
 // ---------------------------------------------------------------------------
 face.edit('maxTokensFloor', '32768')
 props = { t, useQwen38Card: (sel) => sel(face.hooks.qwen38Card.getSnapshot()) }
-html = render(entry.component(props))
+html = renderCard()
 assert.match(html, /32768/, 'edited value renders before save')
+assert.match(html, /未保存/, 'dirty card carries the unsaved tag on its header')
 
 face.edit('chunkRatio', '0.9')
 await face.save()
@@ -250,7 +267,7 @@ assert.equal(mutateCalls[0].expectedRevision, 3)
 // ---------------------------------------------------------------------------
 face.edit('maxTokensFloor', 'abc')
 props = { t, useQwen38Card: (sel) => sel(face.hooks.qwen38Card.getSnapshot()) }
-html = render(entry.component(props))
+html = renderCard()
 assert.match(html, /<button[^>]*>保存<\/button>/, 'save button present while dirty')
 await face.save()
 assert.equal(mutateCalls.length, 1, 'invalid field blocks the save')
@@ -259,22 +276,23 @@ assert.equal(mutateCalls.length, 1, 'invalid field blocks the save')
 // base value, loses its override badge, and saving emits an unset op.
 face.resetField('maxTokensFloor')
 props = { t, useQwen38Card: (sel) => sel(face.hooks.qwen38Card.getSnapshot()) }
-html = render(entry.component(props))
+html = renderCard()
 assert.match(html, /maxTokensFloor" value="16384"/, 'reset shows the base value')
 assert.ok(/<button[^>]*>保存<\/button>/.test(html), 'reset stages a pending unset (save appears)')
 await face.save()
+assert.equal(face.hooks.qwen38Card.getSnapshot().open, false, 'a settled save collapses the card')
 const resetOps = norm(mutateCalls.at(-1).ops)
 assert.deepEqual(resetOps, [{ op: 'unset', path: ['maxTokensFloor'] }], 'reset save emits an unset op')
 // The fake scope applied the unset: only the chunkRatio override badge remains.
 props = { t, useQwen38Card: (sel) => sel(face.hooks.qwen38Card.getSnapshot()) }
-html = render(entry.component(props))
+html = renderCard()
 assert.equal((html.match(/已覆盖默认值/g) || []).length, 1, 'override badge count drops after unset')
 
 // discard drops all staged edits.
 face.edit('chunkRatio', '0.5')
 face.discard()
 props = { t, useQwen38Card: (sel) => sel(face.hooks.qwen38Card.getSnapshot()) }
-html = render(entry.component(props))
+html = renderCard()
 assert.ok(!/<button[^>]*>保存<\/button>/.test(html), 'no save button after discard')
 
 // ---------------------------------------------------------------------------
