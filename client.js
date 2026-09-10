@@ -8,9 +8,9 @@
  * baseline (react, dsh-client-ui-primitives, dsh-client-store).
  *
  * What it renders:
- *   - a dedicated left-nav settings section (Settings → “Qwen3.8 压缩修复”);
- *   - the same card inside Settings → Plugins → Plugin configuration.
- * Both views edit the one `qwen38-gateway-compaction-fix` settings namespace.
+ *   - the plugin card inside Settings → Plugins → Plugin configuration (the one
+ *     home every built-in plugin uses; no extra left-nav entry).
+ * It edits the `qwen38-gateway-compaction-fix` settings namespace.
  */
 window.__ModuleLoader__.load({
 	id: 'dsh-qwen38-gateway-compaction-fix',
@@ -32,7 +32,6 @@ window.__ModuleLoader__.load({
 		const LOCALES = {
 			zh: {
 				title: 'Qwen3.8 网关压缩修复',
-				nav: 'Qwen3.8 压缩修复',
 				description: '让本地网关(llama.cpp 与 NInfer)上的 Qwen3.8 会话压缩可靠完成:辅助调用按引擎写入对应的关思考字段(llama.cpp: chat_template_kwargs.enable_thinking;NInfer: reasoning_effort),并用非思考模式推荐采样参数;超大对话自动分片压缩。保存后实时生效,无需重启。',
 				scopeNote: '作用域:本页全部参数只作用于「压缩摘要」与「会话标题」两类辅助调用。正常对话完全不受影响,仍使用你网关(llama.cpp/NInfer)的默认参数。NInfer 模型请把模型 id 同时填入 ninModels(设置页不展示该项,见 settings.yaml),否则会对 NInfer 网关误发 chat_template_kwargs 导致 400。',
 				commandHint: '手动操作:在任意会话输入框输入 /qwen38-compact(模型总结,保信息,大会话走分片)或 /qwen38-new-context(硬重置:不调模型、秒级完成、历史丢弃)。极简模式等无内置压缩引擎的会话也可用。',
@@ -95,7 +94,6 @@ window.__ModuleLoader__.load({
 			},
 			en: {
 				title: 'Qwen3.8 gateway compaction fix',
-				nav: 'Qwen3.8 compaction fix',
 				description: 'Makes session compaction reliable on local Qwen3.8 gateways (llama.cpp AND NInfer): engine-appropriate thinking-off wire fields + non-thinking sampling for auxiliary calls; oversized conversations compact in chunks. Changes apply live, no restart.',
 				scopeNote: 'Scope: every parameter on this page applies ONLY to auxiliary calls — compaction summaries and session titles. Normal conversation is untouched and keeps your gateway defaults (llama.cpp/NInfer).',
 				commandHint: 'Manual operations: type /qwen38-compact (model-summarized, keeps information, chunked when oversized) or /qwen38-new-context (hard reset: no LLM call, instant, history discarded) in any session composer. Works even in presets without a built-in compaction engine.',
@@ -595,14 +593,14 @@ window.__ModuleLoader__.load({
 			);
 		}
 
-		// Shared field body (used by both the plugins-tab card and the dedicated
-		// settings section): scope banner + grouped fields + action footer.
+		// Card body: scope banner + manual-command hint + grouped fields + footer.
 		function Fields(props) {
 			const t = props.t;
 			const s = props.useQwen38Card((x) => x);
 			const disabled = !s.writable || s.saving;
 			return h(React.Fragment, null,
 				h('p', { style: scopeBannerStyle }, '⚠️ ', t('scopeNote')),
+				h('p', { style: commandHintStyle }, t('commandHint')),
 				s.status === 'unavailable' ? h('p', null, t('unavailable')) : null,
 				h('h4', { style: sectionTitleStyle }, t('basicTitle')),
 				FIELDS.map((f) => h(FieldRow, {
@@ -673,17 +671,6 @@ window.__ModuleLoader__.load({
 			);
 		}
 
-		// Dedicated left-nav settings section (Settings → “Qwen3.8 压缩修复”).
-		function Qwen38Section(props) {
-			const t = props.t;
-			return h('div', null,
-				h('h2', { style: { margin: '0 0 6px', fontSize: '18px', fontWeight: 600, lineHeight: 1.4 } }, t('title')),
-				h('p', { style: cardDescStyle }, t('description')),
-				h('p', { style: commandHintStyle }, t('commandHint')),
-				h(Fields, Object.assign({ idPrefix: 'qwen38-section' }, props)),
-			);
-		}
-
 		// ------------------------------------------------------------------
 		// Cordis client plugin surface.
 		// ------------------------------------------------------------------
@@ -698,23 +685,14 @@ window.__ModuleLoader__.load({
 			ctx.effect(() => ctx.locale.register(NS, LOCALES), NS + ': client dictionaries');
 			const t = typeof ctx.locale?.bind === 'function' ? ctx.locale.bind(NS) : (key) => String(key);
 			const controller = new Qwen38CardController(ctx.settingsScope.bind({ namespace: NS }));
-			// Existing location: the plugins-tab card (Settings → 插件 → 插件配置).
+			// The one home for a plugin's settings — Settings → 插件 → 插件配置 —
+			// matching every built-in plugin (no separate left-nav entry).
 			ctx.slots.inject('settings.plugin.item', () => ctx.slots.register({
 				name: 'settings.plugin.item',
 				key: NS,
 				locale: NS,
 				inject: () => controller.inject(),
 			}, Card));
-			// Dedicated left-nav section (Settings → “Qwen3.8 压缩修复”): the same
-			// live scope, plus the scope banner and the /qwen38-compact hint.
-			ctx.slots.inject('settings.section', () => ctx.slots.register({
-				name: 'settings.section',
-				id: 'qwen38-compaction',
-				order: 20,
-				label: () => t('nav'),
-				locale: NS,
-				inject: () => controller.inject(),
-			}, Qwen38Section));
 		};
 
 		return module.exports;

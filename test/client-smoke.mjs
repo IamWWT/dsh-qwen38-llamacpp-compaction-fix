@@ -161,26 +161,17 @@ assert.equal(localeRegisters[0].ns, 'qwen38-gateway-compaction-fix')
 for (const lang of ['zh', 'en']) {
   const dict = localeRegisters[0].dict[lang]
   assert.ok(dict && typeof dict.title === 'string' && dict.title.length > 0, `locale ${lang} has title`)
-  for (const key of ['nav', 'scopeNote', 'commandHint', 'modelsLabel', 'windowsTitle', 'windowsHint', 'basicTitle', 'enableThinkingOffLabel', 'wireReasoningLabel', 'maxTokensFloorLabel', 'rescueLabel', 'advancedTitle', 'on', 'off', 'collapse', 'expand', 'unsaved', 'save', 'discard', 'overridden', 'reset', 'invalidNumber', 'saveFailed']) {
+  for (const key of ['scopeNote', 'commandHint', 'modelsLabel', 'windowsTitle', 'windowsHint', 'basicTitle', 'enableThinkingOffLabel', 'wireReasoningLabel', 'maxTokensFloorLabel', 'rescueLabel', 'advancedTitle', 'on', 'off', 'collapse', 'expand', 'unsaved', 'save', 'discard', 'overridden', 'reset', 'invalidNumber', 'saveFailed']) {
     assert.ok(typeof dict[key] === 'string' && dict[key].length > 0, `locale ${lang} has ${key}`)
   }
 }
 
-assert.equal(slotEntries.length, 2, 'card + dedicated section registered')
+assert.equal(slotEntries.length, 1, 'only the plugins-tab card is registered (no duplicate left-nav entry)')
 const entry = slotEntries.find((e) => e.options.name === 'settings.plugin.item')
 assert.ok(entry, 'plugins-tab card entry present')
 assert.equal(entry.options.key, 'qwen38-gateway-compaction-fix')
 assert.equal(entry.options.locale, 'qwen38-gateway-compaction-fix')
 assert.equal(typeof entry.component, 'function')
-const sectionEntry = slotEntries.find((e) => e.options.name === 'settings.section')
-assert.ok(sectionEntry, 'dedicated settings.section entry present')
-assert.equal(sectionEntry.options.id, 'qwen38-compaction')
-assert.equal(sectionEntry.options.locale, 'qwen38-gateway-compaction-fix')
-assert.equal(typeof sectionEntry.options.order, 'number')
-assert.equal(typeof sectionEntry.component, 'function')
-// The nav label resolves through the bound locale (fake bind returns the key).
-assert.equal(sectionEntry.options.label(), 'nav')
-
 const face = entry.options.inject()
 assert.ok(face.hooks.qwen38Card, 'face exposes the card store hook')
 for (const fn of ['edit', 'resetField', 'save', 'discard', 'toggleOpen']) assert.equal(typeof face[fn], 'function')
@@ -214,12 +205,9 @@ assert.match(html, /已覆盖默认值/, 'override badge on the overridden field
 assert.ok(!/maxTokensFloor" value="16384"/.test(html), 'base value hidden where user override exists')
 assert.match(html, /作用域/, 'card carries the scope banner')
 
-// The dedicated section renders the same live values plus the scope banner
-// and the /qwen38-compact usage hint.
-let sectionHtml = render(sectionEntry.component(props))
-assert.match(sectionHtml, /Qwen3\.8 网关压缩修复/, 'section title renders')
-assert.match(sectionHtml, /作用域/, 'section carries the scope banner')
-assert.match(sectionHtml, /\/qwen38-compact/, 'section shows the manual command hint')
+// The manual-command hint moved into the card body (the dedicated left-nav
+// section is gone), so the plugins tab remains the single, complete home.
+assert.match(html, /\/qwen38-compact/, 'card body shows the manual command hint')
 
 // ---------------------------------------------------------------------------
 // v0.4 UI: enum dropdown, hover tooltips, rescue-gated dimming.
@@ -239,7 +227,6 @@ assert.equal(face.hooks.qwen38Card.getSnapshot().rescueOn, false, 'staged rescue
 html = renderCard()
 assert.match(html, /依赖「超大对话分片救援」开启——当前已停用/, 'rescue-off note appears in the chunking group')
 face.discard()
-assert.match(sectionHtml, /20000/, 'section reads the same live scope (user override)')
 
 // ---------------------------------------------------------------------------
 // Edit + save: staged text becomes a set op with the nested path.
