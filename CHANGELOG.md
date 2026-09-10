@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.3 (2026-09-09)
+
+### 四个内置 preset 的适用性:代码级验证 + 文档
+
+- 新增 `docs/preset-applicability.md`:适用性矩阵(standard/ptc/cordis 有自动压缩,
+  minimal 没有)、代码路径证据(host 级 fetch 包装 / `llm/stream` / 命令注入;
+  pi-ai 每次 stream 新建 openai client → `getDefaultFetch()` 取全局 fetch)、
+  运行时实证(aiops 会话 56 次 400 证明 fetch 层真实生效)与边界说明。
+- 新增 `test/preset-applicability.mjs`(10 条断言):无压缩引擎时仍 apply 成功且只注册
+  `llm/stream`;手动命令照常注册;全局 fetch 被包装;允许模型压缩体被改写、白名单外
+  逐字节透传;llama.cpp/NInfer 引擎分流;compaction 打标与非 compaction 透传。
+- README 增加"适用 preset"小节并链接该文档。
+
 ## 1.0.2 (2026-09-09)
 
 ### 去掉重复的设置入口

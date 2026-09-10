@@ -139,6 +139,21 @@ dsh-dev plugin --profile web add <克隆路径>/dsh-qwen38-gateway-compaction-fi
 > 插件源码目录里有一个指向 dsh 全局安装的 `node_modules` 软链(仅用于本地跑测试,
 > 已 gitignore),不影响安装;删除后请在 profile 的 node_modules 路径下跑测试。
 
+## 适用 preset(四个内置 preset 全部适用插件本体)
+
+| preset | 自动压缩引擎 | 插件改写/分片救援 | 手动命令 |
+|---|---|---|---|
+| 标准 `standard` / PTC `ptc` / 创造 `cordis` | ✅ 自带 `compaction-basic` | ✅ | ✅ |
+| 极简 `minimal` | ❌(官方注释:*Context compaction is absent*) | ✅(仍作用于标题等命中调用) | ✅(插件自带引擎,不依赖 preset) |
+
+要点:插件是 **profile(host)级**——`globalThis.fetch` 包装是进程级,`llm/stream` 瀑布与
+`commands/tokenMeter/sessions` 注入都挂在 host 服务上(四个 preset 都不组装这些),所以
+除"自动压缩本身"外,四个 preset 行为一致;模型白名单之外一律逐字节透传。
+
+代码路径、SDK 取 fetch 的链路、运行时实证与自动化断言见
+[docs/preset-applicability.md](./docs/preset-applicability.md)(`test/preset-applicability.mjs`
+10 条断言全过)。
+
 ## 使用与配置
 
 ### 网页设置(推荐)
