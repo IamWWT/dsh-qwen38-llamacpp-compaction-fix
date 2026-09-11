@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### minimal 上下文预算文档
+
+- 重写中文 `README.md`,新增英文 `README.en.md`;GitHub 默认仍展示中文 README。
+- 新增 `docs/minimal-context-budget.md`,明确 NInfer 服务端硬限制、预算公式、自动/手动行为与失败边界。
+- 重写 `docs/preset-applicability.md` 与 `docs/codex-token-budget-hard-rollover.md`,区分已实现能力、后续 minimal 自动管理设计、Codex 客户端/后端能力与本地插件能力。
+- 统一服务端限制示例:`contextWindow=378144`、`maxOutputTokens=192000`、`ceil(5%)=18908`、`maxInput=167236`、80% 预警约 `133788`、98% 自动压缩约 `163892`。
+
 ## 1.1.0 (2026-XX-XX)
 
 ### 改名:去掉 `-fix` 尾缀
