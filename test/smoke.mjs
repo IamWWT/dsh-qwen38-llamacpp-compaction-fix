@@ -1,5 +1,5 @@
 /**
- * Gating smoke test for dsh-qwen38-gateway-compaction-fix.
+ * Gating smoke test for dsh-qwen38-gateway-compaction.
  *
  * Run from this directory (a `node_modules` symlink into a tree that provides
  * @deepseek-ai/schemastery + @deepseek-ai/dsh-settings must be resolvable —
@@ -230,7 +230,7 @@ console.log("settings wiring:");
   const listeners = {};
   ctxNew.on = (ev, fn) => { listeners[ev] = fn; };
   apply(ctxNew, { models: ["Qwen3.8-27B-GGUF"] });
-  check("new API: installSection called with the namespace", newApiCall?.ns, "qwen38-gateway-compaction-fix");
+  check("new API: installSection called with the namespace", newApiCall?.ns, "qwen38-gateway-compaction");
   check("new API: entry is schema-resolved (defaults filled)", [newApiCall?.entry?.effort, newApiCall?.entry?.maxTokensFloor, newApiCall?.entry?.chunking?.enabled], ["off", 16384, true]);
   // setSource from the settings scope must re-point the live policy: after
   // switching the allow-list away, a previously-allowed model passes through

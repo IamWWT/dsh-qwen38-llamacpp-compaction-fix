@@ -1,5 +1,5 @@
 /**
- * dsh-qwen38-gateway-compaction-fix — browser half (self-contained client bundle).
+ * dsh-qwen38-gateway-compaction — browser half (self-contained client bundle).
  *
  * Hand-written on purpose: the dsh web shell serves this file verbatim into the
  * page module table (package.json `dsh.client` + `./client` export), so it must
@@ -10,10 +10,10 @@
  * What it renders:
  *   - the plugin card inside Settings → Plugins → Plugin configuration (the one
  *     home every built-in plugin uses; no extra left-nav entry).
- * It edits the `qwen38-gateway-compaction-fix` settings namespace.
+ * It edits the `qwen38-gateway-compaction` settings namespace.
  */
 window.__ModuleLoader__.load({
-	id: 'dsh-qwen38-gateway-compaction-fix',
+	id: 'dsh-qwen38-gateway-compaction',
 	factory: (require) => {
 		var module = { exports: {} };
 		var exports = module.exports;
@@ -24,7 +24,7 @@ window.__ModuleLoader__.load({
 		const { createSnapshotStore } = require('@deepseek-ai/dsh-client-store');
 
 		/** Settings namespace this card edits (must match the Host half). */
-		const NS = 'qwen38-gateway-compaction-fix';
+		const NS = 'qwen38-gateway-compaction';
 
 		// ------------------------------------------------------------------
 		// Locale dictionaries (flat key -> string, zh primary / en fallback).

@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.1.0 (2026-XX-XX)
+
+### 改名:去掉 `-fix` 尾缀
+
+- **改名**:包名 `dsh-qwen38-gateway-compaction-fix` → `dsh-qwen38-gateway-compaction`
+  (设置命名空间同步改为 `qwen38-gateway-compaction`;仓库更名为
+  IamWWT/dsh-qwen38-gateway-compaction)。更名原因:插件本身是"压缩修复"能力,
+  `-fix` 尾缀与"修复/修 bug"语义重复,且与 `dsh-compaction-basic` 等内置包对齐
+  (它们都不带 `-fix` 尾缀)。
+- 设置覆盖段:~/.dsh*/settings.yaml 里的 `qwen38-gateway-compaction-fix:` 段需
+  手动改名为 `qwen38-gateway-compaction:`(旧命名空间不再被识别)。
+- cordis id / 设置命名空间 / 日志前缀同步更名;`/qwen38-compact`、
+  `/qwen38-new-context` 两个手动命令不变。
+
 ## 1.0.3 (2026-09-09)
 
 ### 四个内置 preset 的适用性:代码级验证 + 文档

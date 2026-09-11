@@ -117,7 +117,7 @@ const fakeCtx = {
   },
   settingsScope: {
     bind: (spec) => {
-      assert.equal(spec.namespace, 'qwen38-gateway-compaction-fix')
+      assert.equal(spec.namespace, 'qwen38-gateway-compaction')
       return fakeScope
     },
   },
@@ -139,7 +139,7 @@ vm.createContext(sandbox)
 vm.runInContext(readFileSync(`${ROOT}client.js`, 'utf8'), sandbox, { filename: 'client.js' })
 
 assert.equal(loaded.length, 1, 'exactly one module registered')
-assert.equal(loaded[0].id, 'dsh-qwen38-gateway-compaction-fix')
+assert.equal(loaded[0].id, 'dsh-qwen38-gateway-compaction')
 
 const plugin = loaded[0].factory((specifier) => {
   if (specifier === 'react') return ReactStub
@@ -148,7 +148,7 @@ const plugin = loaded[0].factory((specifier) => {
   throw new Error(`unexpected require: ${specifier}`)
 })
 
-assert.equal(plugin.name, 'qwen38-gateway-compaction-fix')
+assert.equal(plugin.name, 'qwen38-gateway-compaction')
 assert.deepEqual([...plugin.inject].sort(), ['locale', 'settingsScope', 'slots'])
 
 // ---------------------------------------------------------------------------
@@ -157,7 +157,7 @@ assert.deepEqual([...plugin.inject].sort(), ['locale', 'settingsScope', 'slots']
 plugin.apply(fakeCtx)
 assert.equal(effects, 1)
 assert.equal(localeRegisters.length, 1)
-assert.equal(localeRegisters[0].ns, 'qwen38-gateway-compaction-fix')
+assert.equal(localeRegisters[0].ns, 'qwen38-gateway-compaction')
 for (const lang of ['zh', 'en']) {
   const dict = localeRegisters[0].dict[lang]
   assert.ok(dict && typeof dict.title === 'string' && dict.title.length > 0, `locale ${lang} has title`)
@@ -169,8 +169,8 @@ for (const lang of ['zh', 'en']) {
 assert.equal(slotEntries.length, 1, 'only the plugins-tab card is registered (no duplicate left-nav entry)')
 const entry = slotEntries.find((e) => e.options.name === 'settings.plugin.item')
 assert.ok(entry, 'plugins-tab card entry present')
-assert.equal(entry.options.key, 'qwen38-gateway-compaction-fix')
-assert.equal(entry.options.locale, 'qwen38-gateway-compaction-fix')
+assert.equal(entry.options.key, 'qwen38-gateway-compaction')
+assert.equal(entry.options.locale, 'qwen38-gateway-compaction')
 assert.equal(typeof entry.component, 'function')
 const face = entry.options.inject()
 assert.ok(face.hooks.qwen38Card, 'face exposes the card store hook')

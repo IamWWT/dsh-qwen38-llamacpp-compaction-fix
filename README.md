@@ -1,4 +1,4 @@
-# Qwen3.8 (本地网关: llama.cpp / NInfer) Compaction Fix
+# Qwen3.8 (本地网关: llama.cpp / NInfer) 压缩修复
 
 给**本地 Qwen3.8 网关**(llama.cpp 经 Unsloth Studio 的 `llama-server`,
 以及 **NInfer**(`ninfer-serve`))上的本地 **qwen3.8-27b** 修复 dsh(DeepSeek
@@ -97,13 +97,13 @@ dsh-compaction-basic 的摘要永远是**单次 LLM 调用**:把待压缩区间�
 
 前置:你的 DSH home 是 `~/.dsh-dev`(shell 函数 `dsh-dev()` 已设置
 `DSH_HOME=$HOME/.dsh-dev`)。插件源码在
-`~/Downloads/aigc/proj/deepseek/dsh-plugins/dsh-qwen38-gateway-compaction-fix/`。
+`~/Downloads/aigc/proj/deepseek/dsh-plugins/dsh-qwen38-gateway-compaction/`。
 
 **安装/重装就是这一句**(实测:`dsh plugin add` 会自动把插件写进 profile 的
 `dependencies` **和** `dsh.profile.bundles` 两处,不需要手改任何配置文件):
 
 ```sh
-dsh-dev plugin --profile web add /home/wwt/Downloads/aigc/proj/deepseek/dsh-plugins/dsh-qwen38-gateway-compaction-fix
+dsh-dev plugin --profile web add /home/wwt/Downloads/aigc/proj/deepseek/dsh-plugins/dsh-qwen38-gateway-compaction
 ```
 
 然后**重启 `dsh web`**(或刷新 GUI 页面)即生效。装完后 profile 里是
@@ -112,16 +112,16 @@ dsh-dev plugin --profile web add /home/wwt/Downloads/aigc/proj/deepseek/dsh-plug
 嫌命令长可以加个别名(写进 `~/.bashrc`):
 
 ```sh
-alias dshfix='dsh-dev plugin --profile web add /home/wwt/Downloads/aigc/proj/deepseek/dsh-plugins/dsh-qwen38-gateway-compaction-fix'
+alias dshfix='dsh-dev plugin --profile web add /home/wwt/Downloads/aigc/proj/deepseek/dsh-plugins/dsh-qwen38-gateway-compaction'
 ```
 
-卸载:`dsh-dev plugin --profile web rm dsh-qwen38-gateway-compaction-fix`
+卸载:`dsh-dev plugin --profile web rm dsh-qwen38-gateway-compaction`
 
 ### 从本仓库安装(新机器/新目录)
 
 ```sh
-git clone https://github.com/IamWWT/dsh-qwen38-gateway-compaction-fix.git
-dsh-dev plugin --profile web add <克隆路径>/dsh-qwen38-gateway-compaction-fix
+git clone https://github.com/IamWWT/dsh-qwen38-gateway-compaction.git
+dsh-dev plugin --profile web add <克隆路径>/dsh-qwen38-gateway-compaction
 # 重启 dsh web(或刷新 GUI 页面)
 ```
 
@@ -131,9 +131,9 @@ dsh-dev plugin --profile web add <克隆路径>/dsh-qwen38-gateway-compaction-fi
 **验证是否装上:**
 
 - 触发一次压缩(或等自动压缩)后,dsh 日志里应出现:
-  `qwen38-gateway-compaction-fix: rewriting compaction request bodies (thinking off, sampling: ...)`;
+  `qwen38-gateway-compaction: rewriting compaction request bodies (thinking off, sampling: ...)`;
 - 切小模型后的超大对话首次压缩时会出现:
-  `qwen38-gateway-compaction-fix: compaction prompt (~N tokens) exceeds one call for "Qwen3.8-27B-GGUF" (...); running chunked map-reduce with K slices + merge`
+  `qwen38-gateway-compaction: compaction prompt (~N tokens) exceeds one call for "Qwen3.8-27B-GGUF" (...); running chunked map-reduce with K slices + merge`
   以及逐片的 `summarizing slice i/K`、`merging ... partial checkpoints`、`chunked compaction complete`。
 
 > 插件源码目录里有一个指向 dsh 全局安装的 `node_modules` 软链(仅用于本地跑测试,
@@ -263,14 +263,14 @@ curl -s http://127.0.0.1:<llama-server端口>/v1/models \
 所有键都是可选的,默认值由 schema 补齐。优先级(高→低):
 
 1. `$DSH_HOME/settings.yaml`(即 `~/.dsh-dev/settings.yaml`)里的
-   `qwen38-gateway-compaction-fix:` 段 —— **实时生效,无需重启**;
+   `qwen38-gateway-compaction:` 段 —— **实时生效,无需重启**;
 2. profile 里插件行的 `config:` 块(`cordis.patch.yml`,下次 GUI 加载时生效);
 3. 插件内置默认值。
 
 `~/.dsh-dev/settings.yaml` 示例:
 
 ```yaml
-qwen38-gateway-compaction-fix:
+qwen38-gateway-compaction:
   effort: off            # "" 关闭 effort 策略
   models: [Qwen3.8-27B-GGUF, qwen3.8-27b]   # 精确 id;[] 关闭整个策略
   ninModels: [qwen3.8-27b]  # 其中由 NInfer 网关服务的模型:跳过 chat_template_kwargs(它 400),只走 reasoning_effort
